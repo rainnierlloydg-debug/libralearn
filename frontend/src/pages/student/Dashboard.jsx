@@ -201,7 +201,7 @@ function StudentDashboard() {
                     <Card key={transaction.id} className="p-3 flex gap-4">
                       <div className="relative w-16 h-20 flex-shrink-0 overflow-hidden rounded-lg bg-[var(--surface-2)]">
                         <img
-                          src={book.cover_image ? `/storage/${book.cover_image}` : `https://via.placeholder.com/80x100?text=${encodeURIComponent(book.title.substring(0, 10))}`}
+                          src={book.cover_image ? book.cover_url : `https://via.placeholder.com/80x100?text=${encodeURIComponent(book.title.substring(0, 10))}`}
                           alt={book.title}
                           className="w-full h-full object-cover"
                         />
@@ -289,7 +289,7 @@ function StudentDashboard() {
                   <div key={res.id} className="flex items-center gap-3 p-3 bg-[var(--surface-2)] rounded-lg">
                     <div className="relative w-12 h-16 flex-shrink-0 overflow-hidden rounded bg-[var(--surface)]">
                       <img
-                        src={res.book.cover_image ? `/storage/${res.book.cover_image}` : `https://via.placeholder.com/48x64?text=${encodeURIComponent(res.book.title.substring(0, 8))}`}
+                        src={res.book.cover_image ? res.book.cover_url : `https://via.placeholder.com/48x64?text=${encodeURIComponent(res.book.title.substring(0, 8))}`}
                         alt={res.book.title}
                         className="w-full h-full object-cover"
                       />

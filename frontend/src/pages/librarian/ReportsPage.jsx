@@ -424,7 +424,7 @@ function ReportsPage() {
                 <div key={job.id} className="flex items-center justify-between p-3 bg-[var(--surface-2)] rounded-lg">
                   <div className="flex items-center gap-3">
                     {job.uploaded_image && (
-                      <img src={`/storage/${job.uploaded_image}`} alt="" className="w-12 h-16 object-cover rounded" />
+                      <img src={job.uploaded_image_url} alt="" className="w-12 h-16 object-cover rounded" />
                     )}
                     <div>
                       <p className="font-medium text-sm">{job.final_metadata?.title || job.extracted_metadata?.title || 'Not detected'}</p>

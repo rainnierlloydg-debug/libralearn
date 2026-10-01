@@ -21,6 +21,33 @@ jobs:
       - run: cp .env.example .env && php artisan key:generate
       - run: php artisan test
 
+  backend-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: libralearn_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PG_HOST: 127.0.0.1
+      PG_PORT: 5432
+      PG_TEST_DATABASE: libralearn_test
+      PG_USERNAME: postgres
+      PG_PASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_pgsql, mbstring
+      - run: composer install --no-interaction --prefer-dist
+      - run: cp .env.example .env && php artisan key:generate
+      - run: php artisan test --configuration=phpunit.pgsql.xml
+
   frontend:
     runs-on: ubuntu-latest
     defaults:

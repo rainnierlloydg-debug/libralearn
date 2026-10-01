@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Storage;
 
 class Book extends Model
 {
@@ -30,6 +31,32 @@ class Book extends Model
         'status' => 'string',
         'source' => 'string',
     ];
+
+    protected $appends = ['cover_url'];
+
+    /**
+     * Browser URL for a stored cover path or an external cover URL.
+     * The local public disk keeps the relative /storage/ URL.
+     */
+    public static function coverUrlFor(?string $path): ?string
+    {
+        if (!$path) {
+            return null;
+        }
+
+        if (preg_match('#^https?://#i', $path)) {
+            return $path;
+        }
+
+        $disk = config('filesystems.covers_disk', 'public');
+
+        return $disk === 'public' ? '/storage/' . ltrim($path, '/') : Storage::disk($disk)->url($path);
+    }
+
+    public function getCoverUrlAttribute(): ?string
+    {
+        return static::coverUrlFor($this->cover_image);
+    }
 
     protected static function booted(): void
     {
@@ -147,12 +174,12 @@ class Book extends Model
     public function scopeSearch($query, string $term)
     {
         return $query->where(function ($q) use ($term) {
-            $q->where('title', 'LIKE', "%{$term}%")
-              ->orWhere('author', 'LIKE', "%{$term}%")
-              ->orWhere('isbn', 'LIKE', "%{$term}%")
-              ->orWhere('genre', 'LIKE', "%{$term}%")
-              ->orWhere('subject', 'LIKE', "%{$term}%")
-              ->orWhere('description', 'LIKE', "%{$term}%");
+            $q->whereLike('title', "%{$term}%")
+              ->orWhereLike('author', "%{$term}%")
+              ->orWhereLike('isbn', "%{$term}%")
+              ->orWhereLike('genre', "%{$term}%")
+              ->orWhereLike('subject', "%{$term}%")
+              ->orWhereLike('description', "%{$term}%");
         });
     }
 }

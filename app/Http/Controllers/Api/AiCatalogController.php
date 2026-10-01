@@ -52,7 +52,7 @@ class AiCatalogController extends Controller
         }
 
         // Store image
-        $path = $request->file('image')->store('ai-catalog', 'public');
+        $path = $request->file('image')->store('ai-catalog', config('filesystems.covers_disk', 'public'));
 
         // Create job
         $job = AiCatalogJob::create([
@@ -148,7 +148,7 @@ class AiCatalogController extends Controller
                 ->withHeaders(['X-Goog-Api-Key' => $apiKey])
                 ->post($apiUrl, [
                     'requests' => [[
-                        'image' => ['content' => base64_encode(Storage::disk('public')->get($imagePath))],
+                        'image' => ['content' => base64_encode(Storage::disk(config('filesystems.covers_disk', 'public'))->get($imagePath))],
                         'features' => [['type' => 'TEXT_DETECTION']],
                     ]],
                 ]);
@@ -184,7 +184,7 @@ class AiCatalogController extends Controller
         }
 
         try {
-            $disk = Storage::disk('public');
+            $disk = Storage::disk(config('filesystems.covers_disk', 'public'));
             $mimeType = $disk->mimeType($imagePath) ?: 'image/jpeg';
             $imageData = base64_encode($disk->get($imagePath));
             $ocrText = $ocrText !== '' ? Str::limit($ocrText, 12000) : 'No OCR text was available.';
@@ -687,7 +687,7 @@ class AiCatalogController extends Controller
         $this->authorize('librarian');
 
         $job = AiCatalogJob::findOrFail($id);
-        Storage::disk('public')->delete($job->uploaded_image);
+        Storage::disk(config('filesystems.covers_disk', 'public'))->delete($job->uploaded_image);
         $job->delete();
 
         return response()->json([

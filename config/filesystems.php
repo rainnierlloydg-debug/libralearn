@@ -15,6 +15,10 @@ return [
 
     'default' => env('FILESYSTEM_DISK', 'local'),
 
+    // Disk for book cover and AI-catalog uploads: 'public' locally, 's3'
+    // (Supabase Storage S3 API) in production.
+    'covers_disk' => env('COVERS_DISK', 'public'),
+
     /*
     |--------------------------------------------------------------------------
     | Filesystem Disks

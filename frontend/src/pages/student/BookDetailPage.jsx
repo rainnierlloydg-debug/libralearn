@@ -96,7 +96,7 @@ function BookDetailPage() {
 
   const getCoverUrl = () => {
     if (book?.cover_image) {
-      return `/storage/${book.cover_image}`;
+      return book.cover_url;
     }
     return `https://via.placeholder.com/300x450/4F46E5/ffffff?text=${encodeURIComponent(book?.title?.substring(0, 20) || 'No Cover')}`;
   };

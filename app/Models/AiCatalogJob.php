@@ -27,6 +27,13 @@ class AiCatalogJob extends Model
         'confidence' => 'decimal:2',
     ];
 
+    protected $appends = ['uploaded_image_url'];
+
+    public function getUploadedImageUrlAttribute(): ?string
+    {
+        return Book::coverUrlFor($this->uploaded_image);
+    }
+
     public function reviewedBy()
     {
         return $this->belongsTo(User::class, 'reviewed_by');

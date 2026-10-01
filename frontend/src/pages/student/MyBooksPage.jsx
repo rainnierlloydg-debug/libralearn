@@ -166,7 +166,7 @@ function MyBooksPage() {
                           <div className="flex gap-4">
                             <div className="relative w-16 h-20 flex-shrink-0 overflow-hidden rounded-lg bg-[var(--surface-2)]">
                               <img
-                                src={book.cover_image ? `/storage/${book.cover_image}` : `https://via.placeholder.com/64x80?text=${encodeURIComponent(book.title.substring(0, 8))}`}
+                                src={book.cover_image ? book.cover_url : `https://via.placeholder.com/64x80?text=${encodeURIComponent(book.title.substring(0, 8))}`}
                                 alt={book.title}
                                 className="w-full h-full object-cover"
                               />
@@ -246,7 +246,7 @@ function MyBooksPage() {
                           <div className="flex gap-4">
                             <div className="relative w-16 h-20 flex-shrink-0 overflow-hidden rounded-lg bg-[var(--surface-2)]">
                               <img
-                                src={book.cover_image ? `/storage/${book.cover_image}` : `https://via.placeholder.com/64x80?text=${encodeURIComponent(book.title.substring(0, 8))}`}
+                                src={book.cover_image ? book.cover_url : `https://via.placeholder.com/64x80?text=${encodeURIComponent(book.title.substring(0, 8))}`}
                                 alt={book.title}
                                 className="w-full h-full object-cover"
                               />
@@ -309,7 +309,7 @@ function MyBooksPage() {
                   <div className="flex gap-4">
                     <div className="relative w-16 h-20 flex-shrink-0 overflow-hidden rounded-lg bg-[var(--surface-2)]">
                       <img
-                        src={res.book.cover_image ? `/storage/${res.book.cover_image}` : `https://via.placeholder.com/64x80?text=${encodeURIComponent(res.book.title.substring(0, 8))}`}
+                        src={res.book.cover_image ? res.book.cover_url : `https://via.placeholder.com/64x80?text=${encodeURIComponent(res.book.title.substring(0, 8))}`}
                         alt={res.book.title}
                         className="w-full h-full object-cover"
                       />
@@ -365,7 +365,7 @@ function MyBooksPage() {
                   <div className="flex gap-4">
                     <div className="relative w-16 h-20 flex-shrink-0 overflow-hidden rounded-lg bg-[var(--surface-2)]">
                       <img
-                        src={transaction.book.cover_image ? `/storage/${transaction.book.cover_image}` : `https://via.placeholder.com/64x80?text=${encodeURIComponent(transaction.book.title.substring(0, 8))}`}
+                        src={transaction.book.cover_image ? transaction.book.cover_url : `https://via.placeholder.com/64x80?text=${encodeURIComponent(transaction.book.title.substring(0, 8))}`}
                         alt={transaction.book.title}
                         className="w-full h-full object-cover"
                       />
@@ -405,7 +405,7 @@ function MyBooksPage() {
                   <div className="flex gap-4">
                     <div className="relative w-16 h-20 flex-shrink-0 overflow-hidden rounded-lg bg-[var(--surface-2)]">
                       <img
-                        src={transaction.book.cover_image ? `/storage/${transaction.book.cover_image}` : `https://via.placeholder.com/64x80?text=${encodeURIComponent(transaction.book.title.substring(0, 8))}`}
+                        src={transaction.book.cover_image ? transaction.book.cover_url : `https://via.placeholder.com/64x80?text=${encodeURIComponent(transaction.book.title.substring(0, 8))}`}
                         alt={transaction.book.title}
                         className="w-full h-full object-cover"
                       />

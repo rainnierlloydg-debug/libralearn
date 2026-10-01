@@ -227,7 +227,7 @@ function ReturnsPage() {
                   <div className="admin-mini-cover" aria-hidden="true"><BookOpen className="w-5 h-5" /></div>
                   {quickResult.book.cover_image && (
                     <img
-                      src={`/storage/${quickResult.book.cover_image}`}
+                      src={quickResult.book.cover_url}
                       alt={quickResult.book.title}
                       className="absolute inset-0 w-full h-full object-cover"
                       onError={(event) => { event.currentTarget.style.display = 'none'; }}

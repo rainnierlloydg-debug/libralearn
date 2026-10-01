@@ -557,7 +557,7 @@ function AiCatalogPage() {
                   <tr key={job.id} className="border-b-[var(--border)] hover:bg-[var(--surface-2)]">
                     <td className="px-4 py-3">
                       {job.uploaded_image && (
-                        <img src={`/storage/${job.uploaded_image}`} alt="" className="w-16 h-20 object-cover rounded" />
+                        <img src={job.uploaded_image_url} alt="" className="w-16 h-20 object-cover rounded" />
                       )}
                     </td>
                     <td className="px-4 py-3">

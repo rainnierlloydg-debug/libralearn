@@ -39,7 +39,7 @@ class BookController extends Controller
         }
 
         if ($request->filled('author')) {
-            $query->where('author', 'LIKE', "%{$request->author}%");
+            $query->whereLike('author', "%{$request->author}%");
         }
 
         if ($request->filled('year_from')) {
@@ -237,13 +237,13 @@ class BookController extends Controller
             ], 422);
         }
 
-        $path = $request->file('image')->store('book-covers', 'public');
+        $path = $request->file('image')->store('book-covers', config('filesystems.covers_disk', 'public'));
 
         return response()->json([
             'success' => true,
             'message' => 'Cover uploaded successfully',
             'path' => $path,
-            'url' => Storage::url($path),
+            'url' => Book::coverUrlFor($path),
         ]);
     }
 

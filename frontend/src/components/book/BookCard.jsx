@@ -91,7 +91,7 @@ function BookCard({
 
   const getCoverUrl = () => {
     if (book.cover_image) {
-      return `/storage/${book.cover_image}`;
+      return book.cover_url;
     }
     return null;
   };

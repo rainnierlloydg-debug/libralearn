@@ -13,6 +13,11 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // PostgreSQL enums are a CHECK constraint that ->change() keeps.
+        if (DB::getDriverName() === 'pgsql') {
+            DB::statement('ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "users_status_check"');
+        }
+
         Schema::table('users', function (Blueprint $table) {
             // active, inactive, pending, rejected
             $table->string('status', 20)->default('active')->change();
@@ -23,6 +28,12 @@ return new class extends Migration
     {
         // The old enum has no pending/rejected; those accounts stay locked out as inactive.
         DB::table('users')->whereIn('status', ['pending', 'rejected'])->update(['status' => 'inactive']);
+
+        if (DB::getDriverName() === 'pgsql') {
+            DB::statement('ALTER TABLE "users" ADD CONSTRAINT "users_status_check" CHECK ("status" IN (\'active\', \'inactive\'))');
+
+            return;
+        }
 
         Schema::table('users', function (Blueprint $table) {
             $table->enum('status', ['active', 'inactive'])->default('active')->change();

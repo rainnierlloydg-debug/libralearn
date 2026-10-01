@@ -160,7 +160,7 @@ function LibrarianDashboard() {
                       </div>
                       {book.cover_image && (
                         <img
-                          src={`/storage/${book.cover_image}`}
+                          src={book.cover_url}
                           alt={book.title}
                           className="absolute inset-0 w-full h-full object-cover"
                           onError={(event) => { event.currentTarget.style.display = 'none'; }}
@@ -205,7 +205,7 @@ function LibrarianDashboard() {
                           <div className="admin-mini-cover" aria-hidden="true"><BookOpen className="w-4 h-4" /></div>
                           {transaction.book.cover_image && (
                             <img
-                              src={`/storage/${transaction.book.cover_image}`}
+                              src={transaction.book.cover_url}
                               alt={transaction.book.title}
                               className="absolute inset-0 w-full h-full object-cover"
                               onError={(event) => { event.currentTarget.style.display = 'none'; }}
@@ -259,7 +259,7 @@ function LibrarianDashboard() {
                         <div className="admin-mini-cover" aria-hidden="true"><BookOpen className="w-4 h-4" /></div>
                         {transaction.book.cover_image && (
                           <img
-                            src={`/storage/${transaction.book.cover_image}`}
+                            src={transaction.book.cover_url}
                             alt={transaction.book.title}
                             className="absolute inset-0 w-full h-full object-cover"
                             onError={(event) => { event.currentTarget.style.display = 'none'; }}
@@ -300,7 +300,7 @@ function LibrarianDashboard() {
                         <div className="admin-mini-cover" aria-hidden="true"><BookOpen className="w-4 h-4" /></div>
                         {reservation.book.cover_image && (
                           <img
-                            src={`/storage/${reservation.book.cover_image}`}
+                            src={reservation.book.cover_url}
                             alt={reservation.book.title}
                             className="absolute inset-0 w-full h-full object-cover"
                             onError={(event) => { event.currentTarget.style.display = 'none'; }}
