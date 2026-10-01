@@ -35,7 +35,14 @@ export function AuthProvider({ children }) {
   }, [fetchUser]);
 
   const login = async (credentials) => {
-    const response = await api.post('/auth/login', credentials);
+    let response;
+    try {
+      response = await api.post('/auth/login', credentials);
+    } catch (err) {
+      // 401/403 carry a message (e.g. account waiting for approval).
+      if (err.response?.data?.message) return { success: false, message: err.response.data.message };
+      throw err;
+    }
     if (response.data.success) {
       const { user, token } = response.data;
       localStorage.setItem('auth_token', token);
@@ -48,6 +55,10 @@ export function AuthProvider({ children }) {
 
   const register = async (data) => {
     const response = await api.post('/auth/register', data);
+    // New student accounts wait for librarian approval: no token yet.
+    if (response.data.success && response.data.pending) {
+      return { success: true, pending: true, message: response.data.message };
+    }
     if (response.data.success) {
       const { user, token } = response.data;
       localStorage.setItem('auth_token', token);

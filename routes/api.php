@@ -130,6 +130,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/users/{id}', [UserController::class, 'update'])->middleware('role:librarian,admin');
     Route::delete('/users/{id}', [UserController::class, 'destroy'])->middleware('role:librarian,admin');
     Route::get('/users/{id}/details', [UserController::class, 'getDetails'])->middleware('role:librarian,admin');
+    Route::post('/users/{id}/approve', [UserController::class, 'approve'])->middleware('role:librarian,admin');
+    Route::post('/users/{id}/reject', [UserController::class, 'reject'])->middleware('role:librarian,admin');
 
     // Library Locations
     Route::get('/library-locations', [LibraryLocationController::class, 'index']);

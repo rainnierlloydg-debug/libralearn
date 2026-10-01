@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Notification;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -42,20 +43,31 @@ class AuthController extends Controller
             'grade_level' => $request->grade_level,
             'section' => $request->section,
             'profile_image' => $request->profile_image,
-            'status' => 'active',
+            // A librarian approves new student accounts before first login.
+            'status' => 'pending',
         ]);
 
         if ($request->has('interests')) {
             $user->interests()->attach($request->interests);
         }
 
-        $token = $user->createToken('auth_token')->plainTextToken;
+        $librarians = User::whereIn('role', ['librarian', 'admin'])->get();
+        foreach ($librarians as $librarian) {
+            Notification::createForUser(
+                $librarian->id,
+                'New Student Registration',
+                "{$user->name} ({$user->school_id}) registered and is waiting for approval",
+                'registration_pending',
+                ['user_id' => $user->id]
+            );
+        }
 
         return response()->json([
             'success' => true,
-            'message' => 'Registration successful',
+            'pending' => true,
+            'message' => 'Registration received. A librarian must approve your account before you can log in.',
             'user' => $user->load('interests'),
-            'token' => $token,
+            'token' => null,
         ], 201);
     }
 
@@ -88,9 +100,13 @@ class AuthController extends Controller
         
         if ($user->status !== 'active') {
             Auth::logout();
+            $messages = [
+                'pending' => 'Your account is waiting for librarian approval.',
+                'rejected' => 'Your registration was not approved. Please contact the librarian.',
+            ];
             return response()->json([
                 'success' => false,
-                'message' => 'Account is inactive. Please contact the librarian.',
+                'message' => $messages[$user->status] ?? 'Account is inactive. Please contact the librarian.',
             ], 403);
         }
 

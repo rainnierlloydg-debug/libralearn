@@ -120,10 +120,16 @@ class UserController extends Controller
             'email' => 'sometimes|string|email|max:255|unique:users,email,' . $id,
             'grade_level' => 'nullable|string|max:50',
             'section' => 'nullable|string|max:50',
-            'status' => 'sometimes|in:active,inactive',
+            'status' => 'sometimes|in:active,inactive,pending,rejected',
             'profile_image' => 'nullable|string',
             'password' => 'nullable|string|min:8|confirmed',
         ]);
+
+        // Pending/rejected accounts change status only through approve/reject.
+        $fields = ['name', 'school_id', 'email', 'grade_level', 'section', 'status', 'profile_image'];
+        if (in_array($user->status, ['pending', 'rejected']) || in_array($request->status, ['pending', 'rejected'])) {
+            $fields = array_diff($fields, ['status']);
+        }
 
         if ($validator->fails()) {
             return response()->json([
@@ -133,7 +139,7 @@ class UserController extends Controller
             ], 422);
         }
 
-        $user->fill($request->only(['name', 'school_id', 'email', 'grade_level', 'section', 'status', 'profile_image']));
+        $user->fill($request->only($fields));
 
         if ($request->filled('password')) {
             $user->password = Hash::make($request->password);
@@ -166,6 +172,59 @@ class UserController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Student deleted successfully',
+        ]);
+    }
+
+    public function approve($id)
+    {
+        $this->authorize('librarian');
+
+        $user = User::where('role', 'student')->findOrFail($id);
+
+        if ($user->status !== 'pending') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only pending registrations can be approved',
+            ], 422);
+        }
+
+        $user->update(['status' => 'active']);
+
+        Notification::createForUser(
+            $user->id,
+            'Account Approved',
+            'Your LibraLearn account has been approved. Welcome to the GSA Library!',
+            'account_approved',
+            ['user_id' => $user->id]
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Student approved',
+            'data' => $user,
+        ]);
+    }
+
+    public function reject($id)
+    {
+        $this->authorize('librarian');
+
+        $user = User::where('role', 'student')->findOrFail($id);
+
+        if ($user->status !== 'pending') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only pending registrations can be rejected',
+            ], 422);
+        }
+
+        // Kept (not deleted) so the school ID and email stay reserved and auditable.
+        $user->update(['status' => 'rejected']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Registration rejected',
+            'data' => $user,
         ]);
     }
 

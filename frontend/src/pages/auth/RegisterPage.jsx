@@ -145,7 +145,10 @@ function RegisterPage() {
         interests: formData.interests,
         profile_image: formData.profile_image,
       });
-      if (result.success) {
+      if (result.success && result.pending) {
+        success(result.message);
+        navigate('/login');
+      } else if (result.success) {
         success('Registration successful! Welcome to LibraLearn!');
         navigate('/dashboard');
       } else {

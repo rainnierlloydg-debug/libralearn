@@ -220,6 +220,15 @@ function StudentsPage() {
     }
   };
 
+  const handleApproval = async (student, action) => {
+    try {
+      const response = await api.post(`/users/${student.id}/${action}`);
+      setStudents((prev) => prev.map((s) => (s.id === student.id ? { ...s, status: response.data.data.status } : s)));
+    } catch (err) {
+      alert(err.response?.data?.message || `Failed to ${action} student`);
+    }
+  };
+
   const handleStatusToggle = async (student) => {
     try {
       await api.put(`/users/${student.id}`, { status: student.status === 'active' ? 'inactive' : 'active' });
@@ -300,6 +309,8 @@ function StudentsPage() {
                   options={[
                     { value: '', label: 'All Statuses' },
                     { value: 'active', label: 'Active' },
+                    { value: 'pending', label: 'Pending' },
+                    { value: 'rejected', label: 'Rejected' },
                     { value: 'inactive', label: 'Inactive' },
                   ]}
                   value={filters.status}
@@ -384,19 +395,25 @@ function StudentsPage() {
                     </td>
                     <td className="px-4 py-4">
                       <div className="admin-student-actions flex items-center gap-2">
+                        {student.status === 'pending' && (
+                          <>
+                            <Button size="sm" onClick={() => handleApproval(student, 'approve')}>Approve</Button>
+                            <Button size="sm" variant="secondary" onClick={() => handleApproval(student, 'reject')}>Reject</Button>
+                          </>
+                        )}
                         <Button variant="ghost" size="sm" aria-label="View student details" title="View details" onClick={() => openViewModal(student.id)}>
                           <Eye className="w-4 h-4" />
                         </Button>
                         <Button variant="ghost" size="sm" aria-label="Edit student" title="Edit student" onClick={() => openEditModal(student)}>
                           <Edit className="w-4 h-4" />
                         </Button>
-                        <Button variant="ghost" size="sm" aria-label={student.status === 'active' ? 'Deactivate student' : 'Activate student'} title={student.status === 'active' ? 'Deactivate student' : 'Activate student'} onClick={() => handleStatusToggle(student)}>
+                        {['active', 'inactive'].includes(student.status) && (<Button variant="ghost" size="sm" aria-label={student.status === 'active' ? 'Deactivate student' : 'Activate student'} title={student.status === 'active' ? 'Deactivate student' : 'Activate student'} onClick={() => handleStatusToggle(student)}>
                           {student.status === 'active' ? (
                             <AlertCircle className="w-4 h-4 text-yellow-600" />
                           ) : (
                             <CheckCircle className="w-4 h-4 text-green-600" />
                           )}
-                        </Button>
+                        </Button>)}
                         <Button variant="ghost" size="sm" aria-label="Delete student" title="Delete student" onClick={() => handleDelete(student.id)} className="text-red-500 hover:bg-red-50">
                           <Trash2 className="w-4 h-4" />
                         </Button>
