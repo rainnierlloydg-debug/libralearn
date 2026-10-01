@@ -18,6 +18,7 @@ import LibraryMapPage from './pages/student/LibraryMapPage';
 import LibrarianDashboard from './pages/librarian/Dashboard';
 import LibrarianBooksPage from './pages/librarian/BooksPage';
 import LibrarianBookCopiesPage from './pages/librarian/BookCopiesPage';
+import LibrarianLoanDeskPage from './pages/librarian/LoanDeskPage';
 import LibrarianAiCatalogPage from './pages/librarian/AiCatalogPage';
 import LibrarianStudentsPage from './pages/librarian/StudentsPage';
 import LibrarianBorrowingPage from './pages/librarian/BorrowingPage';
@@ -73,6 +74,7 @@ function App() {
               <Route path="/librarian/borrowing" element={<LibrarianBorrowingPage />} />
               <Route path="/librarian/reservations" element={<LibrarianReservationsPage />} />
               <Route path="/librarian/returns" element={<LibrarianReturnsPage />} />
+              <Route path="/librarian/loan-desk" element={<LibrarianLoanDeskPage />} />
               <Route path="/librarian/insights" element={<LibrarianInsightsPage />} />
               <Route path="/librarian/reports" element={<LibrarianReportsPage />} />
               <Route path="/librarian/settings" element={<LibrarianSettingsPage />} />

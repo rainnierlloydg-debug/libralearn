@@ -97,6 +97,7 @@ function LibrarianSidebar({ collapsed = false, mobileOpen = false, onClose, onTo
         { path: '/librarian/borrowing', label: 'Borrowing', icon: Clock },
         { path: '/librarian/reservations', label: 'Reservations', icon: BookmarkCheck },
         { path: '/librarian/returns', label: 'Returns', icon: RotateCcw },
+        { path: '/librarian/loan-desk', label: 'Loan Desk', icon: Clock },
       ],
     },
     {

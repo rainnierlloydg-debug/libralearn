@@ -8,7 +8,7 @@ Baseline: `php artisan test` 7 passed (SQLite in-memory) · `npm run build` OK (
 | Phase | Status | Evidence |
 |-------|--------|----------|
 | A. Book copies + accession numbers | **done** | book_copies table + BookCopy model; loans/reservations carry book_copy_id; books.status kept and auto-synced from copies (human decision); overdue only on loans; backfill = one GSA-###### copy per library book (local MySQL: 16 books → 16 copies, backup in storage/backups); plain page /librarian/books/:id/copies; insights reads book_copies. Tests: BookCopiesTest (14). Verifier: REJECT → minimal-fix → ACCEPT. |
-| B. Loan rules + fines | **partial** | `config/library.php` has loan_days=3, max_active_loans=3, max_renewals=1, renewal_days=1, fine_per_day (env). BorrowController does not enforce them: store() has no active-loan cap; extend() is librarian-only with free 1–30 days; no renewal count; no fine computation/storage; no settings table; no student renew request. approve() reads `loan_period_days` (OK, falls back to 14 if config missing). |
+| B. Loan rules + fines | **done** | Request cap (3 open loans+requests) and approve cap (3 out); 3-day due date from config; student renew-request + librarian renew/decline (1 renewal, +1 day, not when past due); old /extend now follows renewal rules; settings table (fine_per_day, env is only default); fine = days late × rate stored on good/damaged returns; mark fine paid; plain /librarian/loan-desk page; Request Renewal button in My Books. Tests: LoanRulesTest (11). Verifier: ACCEPT. |
 | C. Account approval | **missing** | `users.status` enum is `active, inactive`. register() creates `active`. login() already blocks non-active users (AuthController L89) — reusable. No approve/reject endpoints. |
 | D. Scheduled jobs | **missing** | `routes/console.php` has only `inspire`; no app/Console commands; no Schedule entries. Expiry logic exists as an HTTP action in ReservationController L291–311 (reusable). No overdue sweep, no due-date reminder. |
 | E. Google Cloud Vision OCR | **missing** | AiCatalogController L136 calls OCR.space (`services.ocr`). Open Library + Google Books fallback present. No `GOOGLE_CLOUD_VISION_API_KEY`. No tests for the catalog flow. |
@@ -21,7 +21,7 @@ Already built (integrate only): AssistantController, AssistantKnowledge, Library
 
 1. **Reservation queue (decision for human).** Approving a reservation now needs a copy on the shelf to hold. When a copy is returned it goes to `available`; it is not auto-held for the oldest waiting reservation. Option: auto-hold on return. Not built.
 2. **Phase F needs a Postgres to test against.** No PostgreSQL in Laragon or on PATH, and the CLI PHP (8.2) has no `pdo_pgsql` extension. → Human: install Postgres locally (or give a Supabase test DB URL) and enable `pdo_pgsql`. Effort: M.
-3. **Phase B fine rate source.** Spec says settings table; config currently reads `LIBRARY_FINE_PER_DAY` env. → Settings table wins, env becomes the seed default. Effort: M.
+3. **Phase B UI leftovers (low).** BorrowingPage "Extend" still prompts for days (server now applies the 1-day renewal rule); damaged returns have no return_date (pre-existing).
 
 ## Watch List
 

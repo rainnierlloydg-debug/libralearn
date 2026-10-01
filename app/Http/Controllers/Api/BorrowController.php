@@ -6,12 +6,19 @@ use App\Http\Controllers\Controller;
 use App\Models\Book;
 use App\Models\BorrowTransaction;
 use App\Models\Notification;
+use App\Models\Setting;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Carbon\Carbon;
 
 class BorrowController extends Controller
 {
+    /** Loans where the student physically has the book. */
+    private const OUT_STATUSES = ['borrowed', 'return_requested', 'overdue'];
+
+    /** Out loans plus requests still waiting on the librarian. */
+    private const OPEN_STATUSES = ['pending', 'approved', 'borrowed', 'return_requested', 'overdue'];
+
     public function index(Request $request)
     {
         $query = BorrowTransaction::with(['student', 'book', 'bookCopy', 'approvedBy', 'returnConfirmedBy']);
@@ -32,6 +39,14 @@ class BorrowController extends Controller
 
         if ($request->filled('book_id')) {
             $query->where('book_id', $request->book_id);
+        }
+
+        if ($request->boolean('renewal_requested')) {
+            $query->whereNotNull('renewal_requested_at')->where('status', 'borrowed');
+        }
+
+        if ($request->boolean('fine_unpaid')) {
+            $query->where('fine_amount', '>', 0)->whereNull('fine_paid_at');
         }
 
         $query->orderBy('created_at', 'desc');
@@ -65,6 +80,14 @@ class BorrowController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'This book is not available for borrowing',
+            ], 422);
+        }
+
+        $maxLoans = (int) config('library.max_active_loans', 3);
+        if ($this->activeLoanCount($request->user()->id, self::OPEN_STATUSES) >= $maxLoans) {
+            return response()->json([
+                'success' => false,
+                'message' => "You can have at most {$maxLoans} active loans and requests",
             ], 422);
         }
 
@@ -134,7 +157,15 @@ class BorrowController extends Controller
             ], 422);
         }
 
-        $loanPeriod = config('library.loan_period_days', 14);
+        $maxLoans = (int) config('library.max_active_loans', 3);
+        if ($this->activeLoanCount($transaction->student_id, self::OUT_STATUSES) >= $maxLoans) {
+            return response()->json([
+                'success' => false,
+                'message' => "Student already has {$maxLoans} books out",
+            ], 422);
+        }
+
+        $loanPeriod = config('library.loan_days', 3);
         $dueDate = Carbon::now()->addDays($loanPeriod);
 
         $transaction->update([
@@ -292,18 +323,22 @@ class BorrowController extends Controller
             }
         };
 
+        // Late fine is stored on the loan when the book physically comes back.
+        $fine = $condition === 'lost' ? null : $this->lateFine($transaction);
+
         if ($condition === 'lost') {
             $setStatus('lost');
             $transaction->update(['status' => 'lost']);
         } elseif ($condition === 'damaged') {
             $setStatus('damaged');
-            $transaction->update(['status' => 'damaged']);
+            $transaction->update(['status' => 'damaged', 'fine_amount' => $fine]);
         } else {
             $setStatus('available');
             $transaction->update([
                 'return_date' => now(),
                 'status' => 'returned',
                 'return_confirmed_by' => $request->user()->id,
+                'fine_amount' => $fine,
             ]);
         }
 
@@ -311,7 +346,8 @@ class BorrowController extends Controller
         Notification::createForUser(
             $transaction->student_id,
             'Return Confirmed',
-            "Your return of \"{$book->title}\" has been confirmed. " . ($condition !== 'good' ? "Book condition noted as: {$condition}" : 'Thank you!'),
+            "Your return of \"{$book->title}\" has been confirmed. " . ($condition !== 'good' ? "Book condition noted as: {$condition}" : 'Thank you!')
+                . ($fine > 0 ? ' Late fine: PHP ' . number_format($fine, 2) . '.' : ''),
             'return_confirmed',
             ['transaction_id' => $transaction->id, 'book_id' => $book->id, 'condition' => $condition]
         );
@@ -323,50 +359,189 @@ class BorrowController extends Controller
         ]);
     }
 
-    public function extend(Request $request, $id)
+    /**
+     * Student asks for a renewal. The librarian approves it with renew().
+     */
+    public function requestRenewal(Request $request, $id)
+    {
+        $transaction = BorrowTransaction::with(['book', 'student'])->findOrFail($id);
+
+        if ($transaction->student_id !== $request->user()->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized',
+            ], 403);
+        }
+
+        if ($error = $this->renewalBlocker($transaction)) {
+            return response()->json(['success' => false, 'message' => $error], 422);
+        }
+
+        if ($transaction->renewal_requested_at) {
+            return response()->json([
+                'success' => false,
+                'message' => 'A renewal request is already waiting for the librarian',
+            ], 422);
+        }
+
+        $transaction->update(['renewal_requested_at' => now()]);
+
+        $librarians = \App\Models\User::whereIn('role', ['librarian', 'admin'])->get();
+        foreach ($librarians as $librarian) {
+            Notification::createForUser(
+                $librarian->id,
+                'Renewal Request',
+                "{$transaction->student->name} asked to renew \"{$transaction->book->title}\"",
+                'renewal_request',
+                ['transaction_id' => $transaction->id, 'book_id' => $transaction->book_id]
+            );
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Renewal request sent to the librarian',
+            'data' => $transaction->load(['student', 'book']),
+        ]);
+    }
+
+    /**
+     * Librarian approves a renewal: +renewal_days, at most max_renewals per loan.
+     */
+    public function renew(Request $request, $id)
     {
         $this->authorize('librarian');
 
         $transaction = BorrowTransaction::with(['book', 'student'])->findOrFail($id);
 
-        if ($transaction->status !== 'borrowed') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Can only extend currently borrowed books',
-            ], 422);
+        if ($error = $this->renewalBlocker($transaction)) {
+            return response()->json(['success' => false, 'message' => $error], 422);
         }
 
-        $validator = Validator::make($request->all(), [
-            'additional_days' => 'required|integer|min:1|max:30',
+        $newDueDate = $transaction->due_date->copy()->addDays((int) config('library.renewal_days', 1));
+
+        $transaction->update([
+            'due_date' => $newDueDate,
+            'renewal_count' => $transaction->renewal_count + 1,
+            'renewal_requested_at' => null,
         ]);
 
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation failed',
-                'errors' => $validator->errors(),
-            ], 422);
-        }
-
-        $additionalDays = $request->additional_days;
-        $newDueDate = $transaction->due_date->copy()->addDays($additionalDays);
-
-        $transaction->update(['due_date' => $newDueDate]);
-
-        // Notify student
         Notification::createForUser(
             $transaction->student_id,
-            'Due Date Extended',
-            "The due date for \"{$transaction->book->title}\" has been extended to {$newDueDate->format('M d, Y')}",
+            'Loan Renewed',
+            "Your loan of \"{$transaction->book->title}\" was renewed. New due date: {$newDueDate->format('M d, Y')}",
             'due_extended',
             ['transaction_id' => $transaction->id, 'book_id' => $transaction->book_id, 'due_date' => $newDueDate->toDateString()]
         );
 
         return response()->json([
             'success' => true,
-            'message' => 'Due date extended successfully',
+            'message' => 'Loan renewed',
             'data' => $transaction->load(['student', 'book']),
         ]);
+    }
+
+    public function rejectRenewal(Request $request, $id)
+    {
+        $this->authorize('librarian');
+
+        $transaction = BorrowTransaction::with(['book'])->findOrFail($id);
+
+        if (!$transaction->renewal_requested_at) {
+            return response()->json([
+                'success' => false,
+                'message' => 'There is no renewal request on this loan',
+            ], 422);
+        }
+
+        $transaction->update(['renewal_requested_at' => null]);
+
+        Notification::createForUser(
+            $transaction->student_id,
+            'Renewal Declined',
+            "Your renewal request for \"{$transaction->book->title}\" was declined. Please return it by {$transaction->due_date->format('M d, Y')}.",
+            'renewal_rejected',
+            ['transaction_id' => $transaction->id, 'book_id' => $transaction->book_id]
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Renewal declined',
+            'data' => $transaction->load(['student', 'book']),
+        ]);
+    }
+
+    /**
+     * Older librarian "extend" action. It now follows the renewal rules.
+     */
+    public function extend(Request $request, $id)
+    {
+        return $this->renew($request, $id);
+    }
+
+    public function markFinePaid(Request $request, $id)
+    {
+        $this->authorize('librarian');
+
+        $transaction = BorrowTransaction::with(['student', 'book'])->findOrFail($id);
+
+        if (!($transaction->fine_amount > 0)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This loan has no fine',
+            ], 422);
+        }
+
+        if ($transaction->fine_paid_at) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This fine is already paid',
+            ], 422);
+        }
+
+        $transaction->update(['fine_paid_at' => now()]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Fine marked as paid',
+            'data' => $transaction,
+        ]);
+    }
+
+    private function renewalBlocker(BorrowTransaction $transaction): ?string
+    {
+        if ($transaction->status !== 'borrowed' || !$transaction->due_date) {
+            return 'Only books currently on loan can be renewed';
+        }
+
+        if ($transaction->due_date->isPast()) {
+            return 'Overdue loans cannot be renewed. Please return the book';
+        }
+
+        $max = (int) config('library.max_renewals', 1);
+        if ($transaction->renewal_count >= $max) {
+            return "This loan has already been renewed {$max} time(s)";
+        }
+
+        return null;
+    }
+
+    private function activeLoanCount(int $studentId, array $statuses): int
+    {
+        return BorrowTransaction::where('student_id', $studentId)->whereIn('status', $statuses)->count();
+    }
+
+    /**
+     * Whole days past the due date times the librarian's fine_per_day.
+     */
+    private function lateFine(BorrowTransaction $transaction): float
+    {
+        if (!$transaction->due_date) {
+            return 0;
+        }
+
+        $daysLate = (int) $transaction->due_date->copy()->startOfDay()->diffInDays(now()->startOfDay(), false);
+
+        return $daysLate > 0 ? round($daysLate * Setting::finePerDay(), 2) : 0;
     }
 
     public function markOverdue(Request $request, $id)

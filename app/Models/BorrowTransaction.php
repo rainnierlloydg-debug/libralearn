@@ -20,6 +20,10 @@ class BorrowTransaction extends Model
         'approved_by',
         'return_confirmed_by',
         'notes',
+        'renewal_count',
+        'renewal_requested_at',
+        'fine_amount',
+        'fine_paid_at',
     ];
 
     protected $casts = [
@@ -29,6 +33,10 @@ class BorrowTransaction extends Model
         'due_date' => 'datetime',
         'return_request_date' => 'datetime',
         'return_date' => 'datetime',
+        'renewal_count' => 'integer',
+        'renewal_requested_at' => 'datetime',
+        'fine_amount' => 'decimal:2',
+        'fine_paid_at' => 'datetime',
         'status' => 'string',
     ];
 

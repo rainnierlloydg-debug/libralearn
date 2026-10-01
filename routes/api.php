@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\LibraryLocationController;
 use App\Http\Controllers\Api\InterestController;
 use App\Http\Controllers\Api\AssistantController;
 use App\Http\Controllers\Api\LibraryInsightsController;
+use App\Http\Controllers\Api\LibrarySettingsController;
 use Illuminate\Support\Facades\Route;
 
 // Public routes
@@ -56,6 +57,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/borrow/{id}/confirm-return', [BorrowController::class, 'confirmReturn'])->middleware('role:librarian,admin');
     Route::post('/borrow/{id}/extend', [BorrowController::class, 'extend'])->middleware('role:librarian,admin');
     Route::post('/borrow/{id}/mark-overdue', [BorrowController::class, 'markOverdue'])->middleware('role:librarian,admin');
+    Route::post('/borrow/{id}/renew-request', [BorrowController::class, 'requestRenewal'])->middleware('role:student');
+    Route::post('/borrow/{id}/renew', [BorrowController::class, 'renew'])->middleware('role:librarian,admin');
+    Route::post('/borrow/{id}/renew-reject', [BorrowController::class, 'rejectRenewal'])->middleware('role:librarian,admin');
+    Route::post('/borrow/{id}/fine-paid', [BorrowController::class, 'markFinePaid'])->middleware('role:librarian,admin');
+
+    // Library settings (fine per day)
+    Route::get('/library-settings', [LibrarySettingsController::class, 'show'])->middleware('role:librarian,admin');
+    Route::put('/library-settings', [LibrarySettingsController::class, 'update'])->middleware('role:librarian,admin');
 
     // Reservations
     Route::get('/reservations', [ReservationController::class, 'index']);

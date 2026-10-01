@@ -61,6 +61,18 @@ function MyBooksPage() {
     }
   };
 
+  const handleRenewRequest = async (transactionId) => {
+    setActionLoading(transactionId);
+    try {
+      await api.post(`/borrow/${transactionId}/renew-request`);
+      fetchData();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to request renewal');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const handleCancelReservation = async (reservationId) => {
     setActionLoading(reservationId);
     try {
@@ -190,6 +202,14 @@ function MyBooksPage() {
                                   leftIcon={<RotateCcw className="w-4 h-4" />}
                                 >
                                   {actionLoading === transaction.id ? 'Requesting...' : 'Request Return'}
+                                </Button>
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={() => handleRenewRequest(transaction.id)}
+                                  disabled={actionLoading === transaction.id || !!transaction.renewal_requested_at}
+                                >
+                                  {transaction.renewal_requested_at ? 'Renewal requested' : 'Request Renewal'}
                                 </Button>
                                 <Link to={`/books/${book.id}`} className="btn-ghost text-sm">
                                   View Details
