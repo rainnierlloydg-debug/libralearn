@@ -25,3 +25,4 @@ Append one entry per run. Prune entries older than 30 days.
 {"run_id": "2026-10-02T01:20:00+08:00", "pattern": "phase-build:B", "items_found": 4, "actions_taken": 1, "escalations": 0, "tokens_estimate": 120000, "outcome": "fix-proposed", "verifier": "ACCEPT"}
 {"run_id": "2026-10-02T01:55:00+08:00", "pattern": "phase-build:C", "items_found": 3, "actions_taken": 2, "escalations": 0, "tokens_estimate": 110000, "outcome": "fix-proposed", "verifier": "REJECT then ACCEPT"}
 {"run_id": "2026-10-02T02:25:00+08:00", "pattern": "phase-build:D", "items_found": 3, "actions_taken": 1, "escalations": 0, "tokens_estimate": 90000, "outcome": "fix-proposed", "verifier": "ACCEPT"}
+{"run_id": "2026-10-02T03:05:00+08:00", "pattern": "phase-build:E", "items_found": 6, "actions_taken": 2, "escalations": 1, "tokens_estimate": 130000, "outcome": "fix-proposed", "verifier": "REJECT then ACCEPT"}

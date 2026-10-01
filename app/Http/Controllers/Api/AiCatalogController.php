@@ -104,7 +104,7 @@ class AiCatalogController extends Controller
 
             // Step 3: Search Google Books if needed
             $googleBooksResult = null;
-            if (!$openLibraryResult || empty($openLibraryResult['items'])) {
+            if (!$openLibraryResult || empty($openLibraryResult['docs'])) {
                 $googleBooksResult = $this->searchGoogleBooks($metadata);
                 $job->update(['google_books_result' => $googleBooksResult]);
             }
@@ -129,42 +129,51 @@ class AiCatalogController extends Controller
         }
     }
 
+    /**
+     * OCR with Google Cloud Vision TEXT_DETECTION. Server-side only; the
+     * API key never reaches the browser.
+     */
     protected function extractTextFromImage(string $imagePath): array
     {
-        // Use OCR.space API or similar
-        $apiKey = config('services.ocr.api_key');
-        $apiUrl = config('services.ocr.api_url', 'https://api.ocr.space/parse/image');
+        $apiKey = config('services.google_vision.api_key');
+        $apiUrl = config('services.google_vision.api_url', 'https://vision.googleapis.com/v1/images:annotate');
 
         if (!$apiKey) {
             return ['text' => '', 'metadata' => []];
         }
 
         try {
-            $response = Http::attach(
-                'file',
-                Storage::disk('public')->get($imagePath),
-                basename($imagePath)
-            )->post($apiUrl, [
-                'apikey' => $apiKey,
-                'language' => 'eng',
-                'isOverlayRequired' => false,
-            ]);
+            $response = Http::acceptJson()
+                ->timeout(20)
+                ->withHeaders(['X-Goog-Api-Key' => $apiKey])
+                ->post($apiUrl, [
+                    'requests' => [[
+                        'image' => ['content' => base64_encode(Storage::disk('public')->get($imagePath))],
+                        'features' => [['type' => 'TEXT_DETECTION']],
+                    ]],
+                ]);
 
-            if ($response->successful()) {
-                $data = $response->json();
-                if (isset($data['ParsedResults'][0]['ParsedText'])) {
-                    $text = $data['ParsedResults'][0]['ParsedText'];
-                    return [
-                        'text' => $text,
-                        'metadata' => $this->parseBookMetadata($text),
-                    ];
-                }
+            if (!$response->successful()) {
+                Log::warning('Google Vision OCR failed.', ['status' => $response->status()]);
+                return ['text' => '', 'metadata' => []];
             }
-        } catch (\Exception $e) {
+
+            $result = $response->json('responses.0') ?? [];
+            if (isset($result['error'])) {
+                Log::warning('Google Vision OCR returned an error.', ['message' => $result['error']['message'] ?? null]);
+                return ['text' => '', 'metadata' => []];
+            }
+
+            $text = $result['fullTextAnnotation']['text'] ?? ($result['textAnnotations'][0]['description'] ?? '');
+
+            return [
+                'text' => $text,
+                'metadata' => $text !== '' ? $this->parseBookMetadata($text) : [],
+            ];
+        } catch (\Throwable $e) {
+            Log::warning('Google Vision OCR request failed.', ['message' => $this->redactKeys($e->getMessage())]);
             return ['text' => '', 'metadata' => []];
         }
-
-        return ['text' => '', 'metadata' => []];
     }
 
     protected function extractMetadataWithOpenAI(string $imagePath, string $ocrText): array
@@ -282,6 +291,10 @@ class AiCatalogController extends Controller
 
         $query = implode(' ', $searchTerms);
         $url = config('services.open_library.api_url', 'https://openlibrary.org/search.json');
+        // Accept a base URL (https://openlibrary.org) as well as the full endpoint.
+        if (!str_ends_with($url, '.json')) {
+            $url = rtrim($url, '/') . '/search.json';
+        }
 
         try {
             $response = Http::timeout(10)->get($url, [
@@ -293,7 +306,7 @@ class AiCatalogController extends Controller
                 return $response->json();
             }
         } catch (\Exception $e) {
-            // Log error but continue
+            Log::warning('Book lookup request failed.', ['message' => $this->redactKeys($e->getMessage())]);
         }
 
         return null;
@@ -319,22 +332,41 @@ class AiCatalogController extends Controller
 
         $query = implode(' ', $searchTerms);
         $url = config('services.google_books.api_url', 'https://www.googleapis.com/books/v1/volumes');
+        // Accept a base URL (.../books/v1) as well as the full endpoint.
+        if (!str_ends_with(rtrim($url, '/'), '/volumes')) {
+            $url = rtrim($url, '/') . '/volumes';
+        }
 
         try {
-            $response = Http::timeout(10)->get($url, [
-                'q' => $query,
-                'maxResults' => 5,
-                'key' => config('services.google_books.api_key'),
-            ]);
+            // Key in a header so it never appears in URLs or error messages.
+            $apiKey = config('services.google_books.api_key');
+            $response = Http::timeout(10)
+                ->withHeaders($apiKey ? ['X-Goog-Api-Key' => $apiKey] : [])
+                ->get($url, [
+                    'q' => $query,
+                    'maxResults' => 5,
+                ]);
 
             if ($response->successful()) {
                 return $response->json();
             }
         } catch (\Exception $e) {
-            // Log error but continue
+            Log::warning('Book lookup request failed.', ['message' => $this->redactKeys($e->getMessage())]);
         }
 
         return null;
+    }
+
+    /**
+     * Strip API keys from text before it is logged.
+     */
+    protected function redactKeys(string $text): string
+    {
+        $keys = array_filter([config('services.google_vision.api_key'), config('services.google_books.api_key')]);
+
+        $text = preg_replace('/([?&]key=)[^&\s]+/i', '$1[redacted]', $text);
+
+        return str_replace($keys, '[redacted]', $text);
     }
 
     protected function combineAndClassify(array $ocrData, ?array $openLibrary, ?array $googleBooks): array
@@ -456,8 +488,8 @@ class AiCatalogController extends Controller
         $text = strtolower(implode(' ', [
             $metadata['title'] ?? '',
             $metadata['description'] ?? '',
-            $metadata['raw_subjects'] ? implode(' ', $metadata['raw_subjects']) : '',
-            $metadata['raw_categories'] ? implode(' ', $metadata['raw_categories']) : '',
+            implode(' ', $metadata['raw_subjects'] ?? []),
+            implode(' ', $metadata['raw_categories'] ?? []),
         ]));
 
         $genreKeywords = [
@@ -482,7 +514,7 @@ class AiCatalogController extends Controller
             }
         }
 
-        return 'Fiction';
+        return 'Not detected';
     }
 
     protected function classifySubject(array $metadata): string
@@ -490,8 +522,8 @@ class AiCatalogController extends Controller
         $text = strtolower(implode(' ', [
             $metadata['title'] ?? '',
             $metadata['description'] ?? '',
-            $metadata['raw_subjects'] ? implode(' ', $metadata['raw_subjects']) : '',
-            $metadata['raw_categories'] ? implode(' ', $metadata['raw_categories']) : '',
+            implode(' ', $metadata['raw_subjects'] ?? []),
+            implode(' ', $metadata['raw_categories'] ?? []),
         ]));
 
         $subjectKeywords = [
@@ -514,7 +546,7 @@ class AiCatalogController extends Controller
             }
         }
 
-        return 'General';
+        return 'Not detected';
     }
 
     protected function calculateConfidence(array $finalMetadata, array $ocrData): float
@@ -539,7 +571,7 @@ class AiCatalogController extends Controller
 
         $job = AiCatalogJob::findOrFail($id);
 
-        foreach (['isbn', 'publisher', 'publication_date', 'edition', 'language', 'description', 'cover_image', 'genre', 'subject', 'shelf', 'library_section'] as $field) {
+        foreach (['title', 'author', 'isbn', 'publisher', 'publication_date', 'edition', 'language', 'description', 'cover_image', 'genre', 'subject', 'shelf', 'library_section'] as $field) {
             if ($request->input($field) === 'Not detected') {
                 $request->merge([$field => null]);
             }

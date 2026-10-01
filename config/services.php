@@ -35,9 +35,10 @@ return [
         ],
     ],
 
-    'ocr' => [
-        'api_key' => env('OCR_API_KEY'),
-        'api_url' => env('OCR_API_URL', 'https://api.ocr.space/parse/image'),
+    // Google Cloud Vision TEXT_DETECTION for book-cover OCR (backend only).
+    'google_vision' => [
+        'api_key' => env('GOOGLE_CLOUD_VISION_API_KEY'),
+        'api_url' => env('GOOGLE_CLOUD_VISION_API_URL', 'https://vision.googleapis.com/v1/images:annotate'),
     ],
 
     'openai' => [
