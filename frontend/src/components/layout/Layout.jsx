@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { StudentHeader, LibrarianHeader } from './Header';
 import { StudentSidebar, LibrarianSidebar } from './Sidebar';
-import StudentAssistant from './StudentAssistant';
+import LibraryAssistant from './LibraryAssistant';
 import { getThemePreference, setShellTheme } from '../../utils/theme';
 
 function Layout({ role }) {
@@ -44,7 +44,7 @@ function Layout({ role }) {
             <Outlet />
           </div>
         </main>
-        <StudentAssistant />
+        <LibraryAssistant role="student" />
       </div>
     );
   }
@@ -74,6 +74,7 @@ function Layout({ role }) {
           <Outlet />
         </div>
       </main>
+      <LibraryAssistant role="librarian" />
     </div>
   );
 }

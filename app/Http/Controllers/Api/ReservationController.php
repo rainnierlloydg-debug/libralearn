@@ -14,7 +14,7 @@ class ReservationController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Reservation::with(['student', 'book', 'approvedBy']);
+        $query = Reservation::with(['student', 'book', 'bookCopy', 'approvedBy']);
 
         if ($request->user()->isStudent()) {
             $query->where('student_id', $request->user()->id);
@@ -51,10 +51,19 @@ class ReservationController extends Controller
 
         $book = Book::findOrFail($request->book_id);
 
-        if (!in_array($book->status, ['borrowed', 'reserved', 'overdue'])) {
+        $copyStatuses = $book->copies()->pluck('status');
+
+        if ($copyStatuses->contains('available')) {
             return response()->json([
                 'success' => false,
                 'message' => 'This book is available for immediate borrowing',
+            ], 422);
+        }
+
+        if (!$copyStatuses->contains('borrowed') && !$copyStatuses->contains('reserved')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This book has no copies in circulation',
             ], 422);
         }
 
@@ -122,17 +131,30 @@ class ReservationController extends Controller
             ], 422);
         }
 
+        // Hold a specific copy for pickup.
+        $copy = $request->filled('book_copy_id')
+            ? $reservation->book->copies()->where('status', 'available')->find($request->book_copy_id)
+            : $reservation->book->firstAvailableCopy();
+
+        if (!$copy) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No copy is on the shelf to hold yet',
+            ], 422);
+        }
+
         $pickupDays = $request->get('pickup_deadline_days', 3);
         $pickupDeadline = Carbon::now()->addDays($pickupDays);
 
         $reservation->update([
+            'book_copy_id' => $copy->id,
             'status' => 'ready_for_pickup',
             'approved_date' => now(),
             'pickup_deadline' => $pickupDeadline,
             'approved_by' => $request->user()->id,
         ]);
 
-        $reservation->book->update(['status' => 'reserved']);
+        $copy->update(['status' => 'reserved']);
 
         // Notify student
         Notification::createForUser(
@@ -214,7 +236,11 @@ class ReservationController extends Controller
             'status' => 'completed',
         ]);
 
-        $reservation->book->update(['status' => 'borrowed']);
+        if ($reservation->bookCopy) {
+            $reservation->bookCopy->update(['status' => 'borrowed']);
+        } else {
+            $reservation->book->update(['status' => 'borrowed']);
+        }
 
         // Create a borrow transaction for this
         $loanPeriod = config('library.loan_period_days', 14);
@@ -223,6 +249,7 @@ class ReservationController extends Controller
         $transaction = \App\Models\BorrowTransaction::create([
             'student_id' => $reservation->student_id,
             'book_id' => $reservation->book_id,
+            'book_copy_id' => $reservation->book_copy_id,
             'request_date' => $reservation->reservation_date,
             'approval_date' => $reservation->approved_date,
             'borrow_date' => now(),
@@ -266,15 +293,11 @@ class ReservationController extends Controller
             ], 422);
         }
 
+        $wasHeld = $reservation->status === 'ready_for_pickup';
         $reservation->update(['status' => 'cancelled']);
 
-        // If it was the only reservation, update book status
-        $otherReservations = Reservation::where('book_id', $reservation->book_id)
-            ->whereIn('status', ['pending', 'approved', 'ready_for_pickup'])
-            ->exists();
-
-        if (!$otherReservations) {
-            $reservation->book->update(['status' => 'available']);
+        if ($wasHeld) {
+            $this->releaseHeldCopy($reservation);
         }
 
         return response()->json([
@@ -294,14 +317,7 @@ class ReservationController extends Controller
 
         foreach ($expiredReservations as $reservation) {
             $reservation->update(['status' => 'expired']);
-
-            $otherReservations = Reservation::where('book_id', $reservation->book_id)
-                ->whereIn('status', ['pending', 'approved', 'ready_for_pickup'])
-                ->exists();
-
-            if (!$otherReservations) {
-                $reservation->book->update(['status' => 'available']);
-            }
+            $this->releaseHeldCopy($reservation);
 
             // Notify student
             Notification::createForUser(
@@ -318,5 +334,30 @@ class ReservationController extends Controller
             'message' => "Expired {$expiredReservations->count()} reservations",
             'data' => $expiredReservations->count(),
         ]);
+    }
+
+    /**
+     * Put the copy held for a ready_for_pickup reservation back on the shelf.
+     */
+    private function releaseHeldCopy(Reservation $reservation): void
+    {
+        $copy = $reservation->bookCopy;
+
+        if ($copy && $copy->status === 'reserved') {
+            $copy->update(['status' => 'available']);
+
+            return;
+        }
+
+        // Reservations made before copies existed.
+        if (!$copy) {
+            $stillOpen = Reservation::where('book_id', $reservation->book_id)
+                ->whereIn('status', ['pending', 'approved', 'ready_for_pickup'])
+                ->exists();
+
+            if (!$stillOpen) {
+                $reservation->book->update(['status' => 'available']);
+            }
+        }
     }
 }

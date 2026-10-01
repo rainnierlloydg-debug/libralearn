@@ -14,7 +14,7 @@ class BorrowController extends Controller
 {
     public function index(Request $request)
     {
-        $query = BorrowTransaction::with(['student', 'book', 'approvedBy', 'returnConfirmedBy']);
+        $query = BorrowTransaction::with(['student', 'book', 'bookCopy', 'approvedBy', 'returnConfirmedBy']);
 
         // Role-based filtering
         if ($request->user()->isStudent()) {
@@ -61,7 +61,7 @@ class BorrowController extends Controller
 
         $book = Book::findOrFail($request->book_id);
 
-        if ($book->status !== 'available') {
+        if (!$book->firstAvailableCopy()) {
             return response()->json([
                 'success' => false,
                 'message' => 'This book is not available for borrowing',
@@ -122,7 +122,12 @@ class BorrowController extends Controller
 
         $book = $transaction->book;
 
-        if ($book->status !== 'available') {
+        // The librarian may pick the copy being handed out; otherwise use the first one on the shelf.
+        $copy = $request->filled('book_copy_id')
+            ? $book->copies()->where('status', 'available')->find($request->book_copy_id)
+            : $book->firstAvailableCopy();
+
+        if (!$copy) {
             return response()->json([
                 'success' => false,
                 'message' => 'Book is no longer available',
@@ -133,6 +138,7 @@ class BorrowController extends Controller
         $dueDate = Carbon::now()->addDays($loanPeriod);
 
         $transaction->update([
+            'book_copy_id' => $copy->id,
             'approval_date' => now(),
             'borrow_date' => now(),
             'due_date' => $dueDate,
@@ -140,7 +146,7 @@ class BorrowController extends Controller
             'approved_by' => $request->user()->id,
         ]);
 
-        $book->update(['status' => 'borrowed']);
+        $copy->update(['status' => 'borrowed']);
 
         // Notify student
         Notification::createForUser(
@@ -275,15 +281,25 @@ class BorrowController extends Controller
 
         $condition = $request->get('condition', 'good');
         $book = $transaction->book;
+        $copy = $transaction->bookCopy;
+
+        // The copy carries the physical state; books.status follows from it.
+        $setStatus = function (string $status) use ($book, $copy, $condition) {
+            if ($copy) {
+                $copy->update(['status' => $status, 'condition' => $condition]);
+            } else {
+                $book->update(['status' => $status]);
+            }
+        };
 
         if ($condition === 'lost') {
-            $book->update(['status' => 'lost']);
+            $setStatus('lost');
             $transaction->update(['status' => 'lost']);
         } elseif ($condition === 'damaged') {
-            $book->update(['status' => 'damaged']);
+            $setStatus('damaged');
             $transaction->update(['status' => 'damaged']);
         } else {
-            $book->update(['status' => 'available']);
+            $setStatus('available');
             $transaction->update([
                 'return_date' => now(),
                 'status' => 'returned',
@@ -366,8 +382,8 @@ class BorrowController extends Controller
             ], 422);
         }
 
+        // Overdue is a loan state; the copy stays borrowed.
         $transaction->update(['status' => 'overdue']);
-        $transaction->book->update(['status' => 'overdue']);
 
         // Notify student
         Notification::createForUser(

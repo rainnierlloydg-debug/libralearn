@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Home, Compass, BookOpen, Bookmark, History, MapPin, Bell, User, LayoutDashboard, Book, Sparkles, Users, Clock, BookmarkCheck, RotateCcw, BarChart, Settings, ChevronRight, ChevronLeft } from 'lucide-react';
+import { Home, Compass, BookOpen, Bookmark, History, MapPin, Bell, User, LayoutDashboard, Book, Sparkles, Users, Clock, BookmarkCheck, RotateCcw, BarChart, BrainCircuit, Settings, ChevronRight, ChevronLeft } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
 function StudentSidebar({ collapsed = false, mobileOpen = false, onClose, onToggle }) {
@@ -108,6 +108,7 @@ function LibrarianSidebar({ collapsed = false, mobileOpen = false, onClose, onTo
     {
       title: 'Insights',
       items: [
+        { path: '/librarian/insights', label: 'AI Insights', icon: BrainCircuit },
         { path: '/librarian/reports', label: 'Reports', icon: BarChart },
       ],
     },

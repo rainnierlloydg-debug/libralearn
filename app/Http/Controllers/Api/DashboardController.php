@@ -85,7 +85,8 @@ class DashboardController extends Controller
             'available_books' => Book::where('source', 'gsa')->where('status', 'available')->count(),
             'borrowed_books' => Book::where('source', 'gsa')->where('status', 'borrowed')->count(),
             'reserved_books' => Book::where('source', 'gsa')->where('status', 'reserved')->count(),
-            'overdue_books' => Book::where('source', 'gsa')->where('status', 'overdue')->count(),
+            // Overdue is tracked on the loan, not the book.
+            'overdue_books' => BorrowTransaction::where('status', 'overdue')->distinct()->count('book_id'),
             'lost_books' => Book::where('source', 'gsa')->where('status', 'lost')->count(),
             'damaged_books' => Book::where('source', 'gsa')->where('status', 'damaged')->count(),
             'registered_students' => User::where('role', 'student')->where('status', 'active')->count(),

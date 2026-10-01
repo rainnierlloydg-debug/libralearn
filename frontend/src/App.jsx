@@ -17,12 +17,14 @@ import ProfilePage from './pages/student/ProfilePage';
 import LibraryMapPage from './pages/student/LibraryMapPage';
 import LibrarianDashboard from './pages/librarian/Dashboard';
 import LibrarianBooksPage from './pages/librarian/BooksPage';
+import LibrarianBookCopiesPage from './pages/librarian/BookCopiesPage';
 import LibrarianAiCatalogPage from './pages/librarian/AiCatalogPage';
 import LibrarianStudentsPage from './pages/librarian/StudentsPage';
 import LibrarianBorrowingPage from './pages/librarian/BorrowingPage';
 import LibrarianReservationsPage from './pages/librarian/ReservationsPage';
 import LibrarianReturnsPage from './pages/librarian/ReturnsPage';
 import LibrarianReportsPage from './pages/librarian/ReportsPage';
+import LibrarianInsightsPage from './pages/librarian/InsightsPage';
 import LibrarianSettingsPage from './pages/librarian/SettingsPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import './index.css';
@@ -65,11 +67,13 @@ function App() {
             }>
               <Route path="/librarian/dashboard" element={<LibrarianDashboard />} />
               <Route path="/librarian/books" element={<LibrarianBooksPage />} />
+              <Route path="/librarian/books/:id/copies" element={<LibrarianBookCopiesPage />} />
               <Route path="/librarian/ai-catalog" element={<LibrarianAiCatalogPage />} />
               <Route path="/librarian/students" element={<LibrarianStudentsPage />} />
               <Route path="/librarian/borrowing" element={<LibrarianBorrowingPage />} />
               <Route path="/librarian/reservations" element={<LibrarianReservationsPage />} />
               <Route path="/librarian/returns" element={<LibrarianReturnsPage />} />
+              <Route path="/librarian/insights" element={<LibrarianInsightsPage />} />
               <Route path="/librarian/reports" element={<LibrarianReportsPage />} />
               <Route path="/librarian/settings" element={<LibrarianSettingsPage />} />
             </Route>

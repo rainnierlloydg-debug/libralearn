@@ -31,9 +31,66 @@ class Book extends Model
         'source' => 'string',
     ];
 
+    protected static function booted(): void
+    {
+        // Every library book starts with one physical copy.
+        static::created(function (Book $book) {
+            if ($book->source === 'online') {
+                return;
+            }
+
+            $book->copies()->create([
+                'accession_no' => BookCopy::nextAccessionNo(),
+                'library_location_id' => $book->library_location_id,
+                'status' => match ($book->status) {
+                    'borrowed', 'overdue' => 'borrowed',
+                    'reserved', 'lost', 'damaged' => $book->status,
+                    default => 'available',
+                },
+                'condition' => 'good',
+            ]);
+        });
+    }
+
     public function libraryLocation()
     {
         return $this->belongsTo(LibraryLocation::class);
+    }
+
+    public function copies()
+    {
+        return $this->hasMany(BookCopy::class);
+    }
+
+    public function firstAvailableCopy(): ?BookCopy
+    {
+        return $this->copies()->where('status', 'available')->orderBy('id')->first();
+    }
+
+    /**
+     * books.status is derived from the copies: available if any copy is on
+     * the shelf, otherwise the most recoverable state. Overdue lives on the
+     * borrow transaction, never here. Books without copies are left alone.
+     */
+    public function syncStatusFromCopies(): void
+    {
+        $statuses = $this->copies()->pluck('status');
+
+        if ($statuses->isEmpty()) {
+            return;
+        }
+
+        $status = 'lost';
+        foreach (['available', 'borrowed', 'reserved', 'damaged'] as $candidate) {
+            if ($statuses->contains($candidate)) {
+                $status = $candidate;
+                break;
+            }
+        }
+
+        if ($this->status !== $status) {
+            $this->forceFill(['status' => $status])->saveQuietly();
+        }
     }
 
     public function categories()

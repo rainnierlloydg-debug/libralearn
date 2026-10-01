@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BookController;
+use App\Http\Controllers\Api\BookCopyController;
 use App\Http\Controllers\Api\BorrowController;
 use App\Http\Controllers\Api\ReservationController;
 use App\Http\Controllers\Api\RecommendationController;
@@ -13,7 +14,8 @@ use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\LibraryLocationController;
 use App\Http\Controllers\Api\InterestController;
-use App\Http\Controllers\Api\StudentAssistantController;
+use App\Http\Controllers\Api\AssistantController;
+use App\Http\Controllers\Api\LibraryInsightsController;
 use Illuminate\Support\Facades\Route;
 
 // Public routes
@@ -37,6 +39,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/books/{id}', [BookController::class, 'update'])->middleware('role:librarian,admin');
     Route::delete('/books/{id}', [BookController::class, 'destroy'])->middleware('role:librarian,admin');
     Route::post('/books/upload-cover', [BookController::class, 'uploadCover'])->middleware('role:librarian,admin');
+
+    // Book copies (accession numbers)
+    Route::middleware('role:librarian,admin')->group(function () {
+        Route::get('/books/{bookId}/copies', [BookCopyController::class, 'index']);
+        Route::post('/books/{bookId}/copies', [BookCopyController::class, 'store']);
+        Route::put('/book-copies/{id}', [BookCopyController::class, 'update']);
+    });
 
     // Borrowing
     Route::get('/borrow', [BorrowController::class, 'index']);
@@ -77,9 +86,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/online-search', [OnlineSearchController::class, 'search']);
     Route::get('/online-search/history', [OnlineSearchController::class, 'getHistory']);
 
-    // Student assistant
-    Route::post('/assistant/chat', [StudentAssistantController::class, 'chat'])
-        ->middleware(['role:student', 'throttle:20,1']);
+    // Help assistant (students and librarians)
+    Route::post('/assistant/chat', [AssistantController::class, 'chat'])
+        ->middleware('throttle:20,1');
+
+    // AI library insights: usage trends, demand forecast, copy recommendations
+    Route::middleware('role:librarian,admin')->group(function () {
+        Route::get('/ai/insights', [LibraryInsightsController::class, 'index']);
+        Route::get('/ai/insights/briefing', [LibraryInsightsController::class, 'briefing'])->middleware('throttle:10,1');
+        Route::post('/ai/insights/refresh', [LibraryInsightsController::class, 'refresh']);
+    });
 
     // Dashboard
     Route::get('/dashboard/student', [DashboardController::class, 'student']);

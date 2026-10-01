@@ -124,7 +124,9 @@ class BookController extends Controller
 
     public function show($id)
     {
-        $book = Book::with(['libraryLocation', 'categories'])->findOrFail($id);
+        $book = Book::with(['libraryLocation', 'categories'])
+            ->withCount(['copies', 'copies as available_copies_count' => fn ($q) => $q->where('status', 'available')])
+            ->findOrFail($id);
 
         return response()->json([
             'success' => true,
@@ -166,7 +168,14 @@ class BookController extends Controller
             ], 422);
         }
 
-        $book->update($request->except('category_ids'));
+        $data = $request->except('category_ids');
+
+        // Status of a book with copies comes from its copies, not this form.
+        if ($book->copies()->exists()) {
+            unset($data['status']);
+        }
+
+        $book->update($data);
 
         if ($request->has('category_ids')) {
             $book->categories()->sync($request->category_ids);

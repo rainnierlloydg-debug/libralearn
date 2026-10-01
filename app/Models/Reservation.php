@@ -9,6 +9,7 @@ class Reservation extends Model
     protected $fillable = [
         'student_id',
         'book_id',
+        'book_copy_id',
         'reservation_date',
         'status',
         'approved_date',
@@ -32,6 +33,11 @@ class Reservation extends Model
     public function book()
     {
         return $this->belongsTo(Book::class);
+    }
+
+    public function bookCopy()
+    {
+        return $this->belongsTo(BookCopy::class);
     }
 
     public function approvedBy()

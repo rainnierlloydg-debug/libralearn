@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { Search, Filter, Plus, Edit, Trash2, Eye, Download, Upload, X, ChevronDown } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../utils/api';
@@ -294,7 +295,6 @@ function BooksPage() {
                     { value: 'available', label: 'Available' },
                     { value: 'borrowed', label: 'Borrowed' },
                     { value: 'reserved', label: 'Reserved' },
-                    { value: 'overdue', label: 'Overdue' },
                     { value: 'lost', label: 'Lost' },
                     { value: 'damaged', label: 'Damaged' },
                   ]}
@@ -405,7 +405,6 @@ function BooksPage() {
               { value: 'available', label: 'Available' },
               { value: 'borrowed', label: 'Borrowed' },
               { value: 'reserved', label: 'Reserved' },
-              { value: 'overdue', label: 'Overdue' },
               { value: 'lost', label: 'Lost' },
               { value: 'damaged', label: 'Damaged' },
             ]} />
@@ -453,6 +452,7 @@ function BooksPage() {
             )}
           </div>
           {errors.general && <p className="text-red-600 text-sm">{errors.general}</p>}
+          {editingBook && <p><Link to={`/librarian/books/${editingBook.id}/copies`}>Manage copies</Link></p>}
           <div className="flex justify-end gap-2 pt-4 border-t-[var(--border)]">
             <Button type="button" variant="secondary" onClick={() => setShowAddModal(false)}>Cancel</Button>
             <Button type="submit" loading={saving}>{editingBook ? 'Update' : 'Add'} Book</Button>

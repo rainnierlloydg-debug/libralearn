@@ -9,6 +9,7 @@ class BorrowTransaction extends Model
     protected $fillable = [
         'student_id',
         'book_id',
+        'book_copy_id',
         'request_date',
         'approval_date',
         'borrow_date',
@@ -39,6 +40,11 @@ class BorrowTransaction extends Model
     public function book()
     {
         return $this->belongsTo(Book::class);
+    }
+
+    public function bookCopy()
+    {
+        return $this->belongsTo(BookCopy::class);
     }
 
     public function approvedBy()
