@@ -1,6 +1,6 @@
 # Loop State — LibraLearn
 
-Last run: 2026-10-02 (phase build, human-started)
+Last run: 2026-10-02 (phase build A–G complete, all verified)
 Baseline: `php artisan test` 7 passed (SQLite in-memory) · `npm run build` OK (chunk-size warning only)
 
 ## Phase scorecard
@@ -13,7 +13,7 @@ Baseline: `php artisan test` 7 passed (SQLite in-memory) · `npm run build` OK (
 | D. Scheduled jobs | **done** | library:mark-overdue (daily 00:05), library:send-due-reminders (daily 07:00, "tomorrow" on the school calendar, one reminder per due date via reminded_due_date), library:expire-reservations (hourly); LIBRARY_TIMEZONE=Asia/Manila; shared logic moved to BorrowTransaction::markOverdue and Reservation::expire/releaseHeldCopy; fines now count days on the same calendar. Needs `php artisan schedule:work` or a scheduler process. Tests: ScheduledJobsTest (5, frozen clock). Verifier: ACCEPT. |
 | E. Google Cloud Vision OCR | **done** | Vision TEXT_DETECTION via backend (key in X-Goog-Api-Key header, never in URL or logs); flow kept: OCR → (OpenAI, existing) → Open Library → Google Books fallback (now correctly triggered only when Open Library has no docs) → librarian review. No fabrication: genre/subject default "Not detected" (was Fiction/General); "Not detected" title/author cannot be confirmed. Base lookup URLs accepted. Tests: AiCatalogVisionTest (8, Http::fake + preventStrayRequests). Verifier: REJECT (key in logs) → minimal-fix → ACCEPT. |
 | F. PostgreSQL readiness | **done** | Full suite passes on SQLite, PostgreSQL 18 (phpunit.pgsql.xml / composer test:pgsql) and MySQL (60/60 each). All enum columns → string (pgsql CHECK constraints dropped); LIKE → whereLike (ILIKE on pgsql); raw aggregates verified; Interest::students pivot bug fixed (student-activity report 500ed). Covers + AI-catalog images on COVERS_DISK (public locally, s3 for Supabase Storage), API returns cover_url/uploaded_image_url, frontend uses them. CI has a Postgres job. Tests: DatabasePortabilityTest (3), CoverStorageTest (3). Verifier: ACCEPT. |
-| G. Deployment config | **missing** | No railway/render config, no `frontend/vercel.json`, no DEPLOY.md. `frontend/src/utils/api.js` uses `baseURL: '/api'` (no VITE_API_URL). |
+| G. Deployment config | **done** | Railway: railway.json (web, pre-deploy migrate, /up health), railway.worker.json (queue:work), railway.cron.json (schedule:work); jobs/failed_jobs tables added; ext-pdo_pgsql required; CORS from CORS_ALLOWED_ORIGINS; trustProxies. Vercel: frontend/vercel.json, standalone build when VERCEL=1, api.js reads VITE_API_URL. DEPLOY.md (Supabase → Railway → Vercel). Tests: DeploymentConfigTest (3). Verifier: ACCEPT (real deploy still to be done by human). |
 
 Already built (integrate only): AssistantController, AssistantKnowledge, LibraryDemandService, LibraryInsightsNarrator, LibraryInsightsController, DemoActivitySeeder, LibraryInsightsTest — present and green.
 

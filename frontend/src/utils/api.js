@@ -1,7 +1,12 @@
 import axios from 'axios';
 
+// VITE_API_URL is the Laravel API origin in production (e.g. https://libralearn-api.up.railway.app).
+// Unset locally: requests go to /api and the Vite dev proxy / Laravel serves them.
+const apiOrigin = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
+const baseURL = apiOrigin ? (apiOrigin.endsWith('/api') ? apiOrigin : `${apiOrigin}/api`) : '/api';
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL,
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
