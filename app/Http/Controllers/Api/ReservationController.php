@@ -297,7 +297,7 @@ class ReservationController extends Controller
         $reservation->update(['status' => 'cancelled']);
 
         if ($wasHeld) {
-            $this->releaseHeldCopy($reservation);
+            $reservation->releaseHeldCopy();
         }
 
         return response()->json([
@@ -311,53 +311,17 @@ class ReservationController extends Controller
     {
         $this->authorize('librarian');
 
-        $expiredReservations = Reservation::where('status', 'ready_for_pickup')
+        $expiredReservations = Reservation::with(['book', 'bookCopy'])
+            ->where('status', 'ready_for_pickup')
             ->where('pickup_deadline', '<', now())
             ->get();
 
-        foreach ($expiredReservations as $reservation) {
-            $reservation->update(['status' => 'expired']);
-            $this->releaseHeldCopy($reservation);
-
-            // Notify student
-            Notification::createForUser(
-                $reservation->student_id,
-                'Reservation Expired',
-                "Your reservation for \"{$reservation->book->title}\" has expired.",
-                'reservation_expired',
-                ['reservation_id' => $reservation->id, 'book_id' => $reservation->book_id]
-            );
-        }
+        $expiredReservations->each->expire();
 
         return response()->json([
             'success' => true,
             'message' => "Expired {$expiredReservations->count()} reservations",
             'data' => $expiredReservations->count(),
         ]);
-    }
-
-    /**
-     * Put the copy held for a ready_for_pickup reservation back on the shelf.
-     */
-    private function releaseHeldCopy(Reservation $reservation): void
-    {
-        $copy = $reservation->bookCopy;
-
-        if ($copy && $copy->status === 'reserved') {
-            $copy->update(['status' => 'available']);
-
-            return;
-        }
-
-        // Reservations made before copies existed.
-        if (!$copy) {
-            $stillOpen = Reservation::where('book_id', $reservation->book_id)
-                ->whereIn('status', ['pending', 'approved', 'ready_for_pickup'])
-                ->exists();
-
-            if (!$stillOpen) {
-                $reservation->book->update(['status' => 'available']);
-            }
-        }
     }
 }

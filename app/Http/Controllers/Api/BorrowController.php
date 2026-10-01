@@ -539,7 +539,10 @@ class BorrowController extends Controller
             return 0;
         }
 
-        $daysLate = (int) $transaction->due_date->copy()->startOfDay()->diffInDays(now()->startOfDay(), false);
+        // Count days on the school calendar, same as the due-date reminders.
+        $tz = config('library.timezone', 'Asia/Manila');
+        $daysLate = (int) $transaction->due_date->copy()->setTimezone($tz)->startOfDay()
+            ->diffInDays(now($tz)->startOfDay(), false);
 
         return $daysLate > 0 ? round($daysLate * Setting::finePerDay(), 2) : 0;
     }
@@ -557,17 +560,7 @@ class BorrowController extends Controller
             ], 422);
         }
 
-        // Overdue is a loan state; the copy stays borrowed.
-        $transaction->update(['status' => 'overdue']);
-
-        // Notify student
-        Notification::createForUser(
-            $transaction->student_id,
-            'Book Overdue',
-            "\"{$transaction->book->title}\" is now overdue. Please return it as soon as possible.",
-            'overdue',
-            ['transaction_id' => $transaction->id, 'book_id' => $transaction->book_id]
-        );
+        $transaction->markOverdue();
 
         return response()->json([
             'success' => true,

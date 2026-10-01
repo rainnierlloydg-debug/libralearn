@@ -45,6 +45,49 @@ class Reservation extends Model
         return $this->belongsTo(User::class, 'approved_by');
     }
 
+    /**
+     * Expire a held reservation past its pickup deadline: release the
+     * copy and tell the student.
+     */
+    public function expire(): void
+    {
+        $this->update(['status' => 'expired']);
+        $this->releaseHeldCopy();
+
+        Notification::createForUser(
+            $this->student_id,
+            'Reservation Expired',
+            "Your reservation for \"{$this->book->title}\" has expired.",
+            'reservation_expired',
+            ['reservation_id' => $this->id, 'book_id' => $this->book_id]
+        );
+    }
+
+    /**
+     * Put the copy held for this reservation back on the shelf.
+     */
+    public function releaseHeldCopy(): void
+    {
+        $copy = $this->bookCopy;
+
+        if ($copy && $copy->status === 'reserved') {
+            $copy->update(['status' => 'available']);
+
+            return;
+        }
+
+        // Reservations made before copies existed.
+        if (!$copy) {
+            $stillOpen = static::where('book_id', $this->book_id)
+                ->whereIn('status', ['pending', 'approved', 'ready_for_pickup'])
+                ->exists();
+
+            if (!$stillOpen) {
+                $this->book->update(['status' => 'available']);
+            }
+        }
+    }
+
     public function isExpired(): bool
     {
         if ($this->status !== 'ready_for_pickup' || !$this->pickup_deadline) {

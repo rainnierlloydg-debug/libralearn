@@ -160,9 +160,11 @@ class LoanRulesTest extends TestCase
     public function test_overdue_return_stores_fine_and_librarian_marks_it_paid(): void
     {
         Setting::setValue('fine_per_day', '5');
+        $this->travelTo(\Illuminate\Support\Carbon::parse('2026-10-05 09:00', 'Asia/Manila'));
         $loan = $this->borrow();
 
-        $this->travelTo($loan->due_date->copy()->addDays(2)->setTime(10, 0));
+        // Two school-calendar days after the due date.
+        $this->travelTo($loan->due_date->copy()->setTimezone('Asia/Manila')->addDays(2)->setTime(10, 0));
         Sanctum::actingAs($this->librarian);
         $this->postJson("/api/borrow/{$loan->id}/confirm-return", ['condition' => 'good'])->assertOk();
 

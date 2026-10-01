@@ -13,6 +13,9 @@
 return [
     'school_name' => env('LIBRARY_SCHOOL_NAME', 'Good Shepherd Academy'),
 
+    // Calendar used for due-date reminders and the daily schedule.
+    'timezone' => env('LIBRARY_TIMEZONE', 'Asia/Manila'),
+
     'loan_days' => (int) env('LIBRARY_LOAN_DAYS', 3),
     // Read by BorrowController::approve() when setting the due date.
     'loan_period_days' => (int) env('LIBRARY_LOAN_DAYS', 3),
