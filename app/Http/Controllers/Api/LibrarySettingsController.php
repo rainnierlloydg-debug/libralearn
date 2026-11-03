@@ -20,7 +20,11 @@ class LibrarySettingsController extends Controller
     public function update(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'fine_per_day' => 'required|numeric|min:0|max:1000',
+            'fine_per_day' => 'required_without_all:library_name,library_email,library_phone,library_address|numeric|min:0|max:1000',
+            'library_name' => 'sometimes|required|string|max:255',
+            'library_email' => 'sometimes|nullable|email|max:255',
+            'library_phone' => 'sometimes|nullable|string|max:50',
+            'library_address' => 'sometimes|nullable|string|max:1000',
         ]);
 
         if ($validator->fails()) {
@@ -31,7 +35,9 @@ class LibrarySettingsController extends Controller
             ], 422);
         }
 
-        Setting::setValue('fine_per_day', (string) round((float) $request->fine_per_day, 2));
+        foreach ($validator->validated() as $key => $value) {
+            Setting::setValue($key, $key === 'fine_per_day' ? (string) round((float) $value, 2) : $value);
+        }
 
         return response()->json([
             'success' => true,
@@ -44,6 +50,10 @@ class LibrarySettingsController extends Controller
     {
         return [
             'fine_per_day' => Setting::finePerDay(),
+            'library_name' => Setting::getValue('library_name', config('library.school_name') . ' Library'),
+            'library_email' => Setting::getValue('library_email', ''),
+            'library_phone' => Setting::getValue('library_phone', ''),
+            'library_address' => Setting::getValue('library_address', ''),
             // Read-only loan rules from config/library.php, shown for reference.
             'loan_days' => (int) config('library.loan_days'),
             'max_active_loans' => (int) config('library.max_active_loans'),

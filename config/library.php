@@ -11,10 +11,13 @@
 */
 
 return [
+    'forecasting' => [
+        'enabled' => env('LIBRARY_FORECAST_ENABLED') !== false && env('LIBRARY_FORECAST_ENABLED') !== '0',
+        'engine' => env('LIBRARY_FORECAST_ENGINE', 'prophet'), // 'prophet' or 'statsmodels'
+        'python' => env('LIBRARY_FORECAST_PYTHON') ?: base_path(PHP_OS_FAMILY === 'Windows'
+            ? '.forecast-venv/Scripts/python.exe' : '.forecast-venv/bin/python'),
+    ],
     'school_name' => env('LIBRARY_SCHOOL_NAME', 'Good Shepherd Academy'),
-
-    // Calendar used for due-date reminders and the daily schedule.
-    'timezone' => env('LIBRARY_TIMEZONE', 'Asia/Manila'),
 
     'loan_days' => (int) env('LIBRARY_LOAN_DAYS', 3),
     // Read by BorrowController::approve() when setting the due date.

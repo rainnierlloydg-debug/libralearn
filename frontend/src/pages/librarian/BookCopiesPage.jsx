@@ -25,8 +25,12 @@ function BookCopiesPage() {
   }, [id]);
 
   useEffect(() => {
-    load();
-    api.get('/library-locations').then((res) => setLocations(res.data.data ?? []));
+    // Defer network setup and cancel it if this view changes before it starts.
+    const timer = setTimeout(() => {
+      load();
+      api.get('/library-locations').then((res) => setLocations(res.data.data ?? []));
+    }, 0);
+    return () => clearTimeout(timer);
   }, [load]);
 
   const locationOptions = [

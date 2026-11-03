@@ -13,6 +13,22 @@ use Carbon\Carbon;
 
 class DashboardController extends Controller
 {
+    public function landingStats(Request $request)
+    {
+        // Public landing page statistics
+        $stats = [
+            'total_books' => Book::where('source', 'gsa')->count(),
+            'active_students' => User::where('role', 'student')->where('status', 'active')->count(),
+            'total_borrowed' => BorrowTransaction::whereIn('status', ['borrowed', 'returned'])->count(),
+            'genres_available' => Book::where('source', 'gsa')->distinct('genre')->count('genre'),
+        ];
+
+        return response()->json([
+            'success' => true,
+            'data' => $stats,
+        ]);
+    }
+
     public function student(Request $request)
     {
         $user = $request->user();

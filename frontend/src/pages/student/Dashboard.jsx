@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import useNow from '../../utils/useNow';
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { BookOpen, Compass, Bookmark, Clock, AlertCircle, MapPin, Plus, Search, Calendar, ExternalLink, CheckCircle, Bell } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import { BookOpen, Bookmark, Clock, AlertCircle, MapPin, Plus, CheckCircle, Bell } from 'lucide-react';
+import { useAuth } from '../../contexts/useAuth';
 import api from '../../utils/api';
 import BookCard from '../../components/book/BookCard';
 import RecommendationCard from '../../components/book/RecommendationCard';
@@ -9,18 +10,34 @@ import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import { SkeletonCard } from '../../components/ui/Skeleton';
-import { formatDate, getRelativeTime } from '../../utils/helpers';
+import { getRelativeTime } from '../../utils/helpers';
 
 function StudentDashboard() {
+  const now = useNow();
   const { user } = useAuth();
   const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [catalogBooks, setCatalogBooks] = useState([]);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState(false);
 
   useEffect(() => {
-    fetchDashboard();
+    const controller = new AbortController();
+    api.get('/books', {
+      params: { per_page: 6, sort_by: 'title', sort_order: 'asc' },
+      signal: controller.signal,
+    }).then(({ data }) => {
+      if (!data.success) throw new Error('Unable to load catalog');
+      setCatalogBooks(data.data.data);
+    }).catch(() => {
+      if (!controller.signal.aborted) setCatalogError(true);
+    }).finally(() => {
+      if (!controller.signal.aborted) setCatalogLoading(false);
+    });
+    return () => controller.abort();
   }, []);
 
-  const fetchDashboard = async () => {
+  const fetchDashboard = useCallback(async () => {
     try {
       const response = await api.get('/dashboard/student');
       if (response.data.success) {
@@ -31,10 +48,18 @@ function StudentDashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    // Defer network setup and cancel it if this view changes before it starts.
+    const timer = setTimeout(() => {
+      fetchDashboard();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchDashboard]);
 
   const getGreeting = () => {
-    const hour = new Date().getHours();
+    const hour = new Date(now).getHours();
     if (hour < 12) return 'Good morning';
     if (hour < 18) return 'Good afternoon';
     return 'Good evening';
@@ -81,6 +106,10 @@ function StudentDashboard() {
           </h1>
           <p className="text-[var(--text-muted)] mt-1">What are you reading next?</p>
         </div>
+        <Link to="/search" className="btn btn-primary w-full md:w-auto shrink-0">
+          <BookOpen className="w-4 h-4 shrink-0" aria-hidden="true" />
+          <span>Browse All Books</span>
+        </Link>
       </div>
 
       {/* Quick stats cards */}
@@ -150,19 +179,47 @@ function StudentDashboard() {
                       : `You have ${upcoming_due.length} book${upcoming_due.length > 1 ? 's' : ''} due within 3 days.`
                     }
                   </p>
-                  <Link to="/my-books" className="text-sm font-medium text-primary-600 hover:text-primary-700 mt-2 inline-block">
-                    View all borrowed books →
+                  <Link to="/my-books" className="btn btn-secondary btn-sm mt-2">
+                    View all borrowed books
                   </Link>
                 </div>
               </div>
             </Card>
           )}
 
+          <section aria-labelledby="catalog-heading">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+              <div>
+                <h2 id="catalog-heading" className="text-xl font-heading font-semibold text-[var(--text)]">Explore the Library</h2>
+                <p className="text-sm text-[var(--text-muted)]">Browse the full collection and choose what you want to read.</p>
+              </div>
+              <Link to="/search" className="btn btn-secondary btn-sm shrink-0">View All Books</Link>
+            </div>
+            {catalogLoading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {[...Array(4)].map((_, i) => <SkeletonCard key={i} />)}
+              </div>
+            ) : catalogError ? (
+              <Card className="p-6 text-center">
+                <p className="text-[var(--text-muted)] mb-3">Unable to load the library preview.</p>
+                <Link to="/search" className="btn btn-primary">Browse All Books</Link>
+              </Card>
+            ) : catalogBooks.length === 0 ? (
+              <Card className="p-6 text-center">
+                <p className="text-[var(--text-muted)]">No books in the library yet.</p>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {catalogBooks.map((book) => <BookCard key={book.id} book={book} showActions={true} />)}
+              </div>
+            )}
+          </section>
+
           {/* Recommendations */}
           <div>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-heading font-semibold text-[var(--text)]">Recommended For You</h2>
-              <Link to="/recommendations" className="text-sm text-primary-600 hover:text-primary-700 font-medium">See all →</Link>
+              <Link to="/recommendations" className="btn btn-secondary btn-sm shrink-0" aria-label="See all recommendations">See all</Link>
             </div>
             {recommendations.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -188,12 +245,12 @@ function StudentDashboard() {
             <div>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-heading font-semibold text-[var(--text)]">Currently Borrowed</h2>
-                <Link to="/my-books" className="text-sm text-primary-600 hover:text-primary-700 font-medium">View all →</Link>
+                <Link to="/my-books" className="btn btn-secondary btn-sm shrink-0" aria-label="View all borrowed books">View all</Link>
               </div>
               <div className="space-y-3">
                 {borrowed_books.slice(0, 3).map((transaction) => {
                   const book = transaction.book;
-                  const daysLeft = transaction.due_date ? Math.ceil((new Date(transaction.due_date) - new Date()) / (1000 * 60 * 60 * 24)) : 0;
+                  const daysLeft = transaction.due_date ? Math.ceil((new Date(transaction.due_date) - new Date(now)) / (1000 * 60 * 60 * 24)) : 0;
                   const isOverdue = daysLeft < 0;
                   const isDueSoon = daysLeft <= 3 && daysLeft >= 0;
 
@@ -236,7 +293,7 @@ function StudentDashboard() {
             <div>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-heading font-semibold text-[var(--text)]">Saved Books</h2>
-                <Link to="/saved-books" className="text-sm text-primary-600 hover:text-primary-700 font-medium">View all →</Link>
+                <Link to="/saved-books" className="btn btn-secondary btn-sm shrink-0" aria-label="View all saved books">View all</Link>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {saved_books.slice(0, 6).map((saved) => (
@@ -246,33 +303,6 @@ function StudentDashboard() {
             </div>
           )}
 
-          {/* Recently viewed / Quick actions */}
-          <div>
-            <h2 className="text-xl font-heading font-semibold text-[var(--text)] mb-4">Quick Actions</h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <Link to="/recommendations" className="card p-4 text-center hover:shadow-lg transition-shadow group">
-                <div className="w-12 h-12 mx-auto mb-3 rounded-xl bg-accent-100 dark:bg-accent-900/30 flex items-center justify-center group-hover:bg-accent-200 dark:group-hover:bg-accent-800/30 transition-colors">
-                  <Compass className="w-6 h-6 text-accent-600 dark:text-accent-400" />
-                </div>
-                <h3 className="font-medium text-[var(--text)]">Recommendations</h3>
-                <p className="text-sm text-[var(--text-muted)]">Books picked for you</p>
-              </Link>
-              <Link to="/my-books" className="card p-4 text-center hover:shadow-lg transition-shadow group">
-                <div className="w-12 h-12 mx-auto mb-3 rounded-xl bg-green-100 dark:bg-green-900/30 flex items-center justify-center group-hover:bg-green-200 dark:group-hover:bg-green-800/30 transition-colors">
-                  <BookOpen className="w-6 h-6 text-green-600 dark:text-green-400" />
-                </div>
-                <h3 className="font-medium text-[var(--text)]">My Books</h3>
-                <p className="text-sm text-[var(--text-muted)]">Borrowed & reserved</p>
-              </Link>
-              <Link to="/online-search" className="card p-4 text-center hover:shadow-lg transition-shadow group">
-                <div className="w-12 h-12 mx-auto mb-3 rounded-xl bg-teal-100 dark:bg-teal-900/30 flex items-center justify-center group-hover:bg-teal-200 dark:group-hover:bg-teal-800/30 transition-colors">
-                  <ExternalLink className="w-6 h-6 text-teal-600 dark:text-teal-400" />
-                </div>
-                <h3 className="font-medium text-[var(--text)]">Online Search</h3>
-                <p className="text-sm text-[var(--text-muted)]">Search beyond GSA</p>
-              </Link>
-            </div>
-          </div>
         </div>
 
         {/* Right column - Sidebar widgets */}
@@ -281,7 +311,7 @@ function StudentDashboard() {
           <Card>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-[var(--text)]">My Reservations</h3>
-              <Link to="/my-books" className="text-sm text-primary-600 hover:text-primary-700">View all</Link>
+              <Link to="/my-books" className="btn btn-secondary btn-sm shrink-0" aria-label="View all reservations">View all</Link>
             </div>
             {reservations.length > 0 ? (
               <div className="space-y-3">
@@ -317,7 +347,7 @@ function StudentDashboard() {
           <Card>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-[var(--text)]">Notifications</h3>
-              <Link to="/notifications" className="text-sm text-primary-600 hover:text-primary-700">View all</Link>
+              <Link to="/notifications" className="btn btn-secondary btn-sm shrink-0" aria-label="View all notifications">View all</Link>
             </div>
             {notifications.length > 0 ? (
               <div className="space-y-3">

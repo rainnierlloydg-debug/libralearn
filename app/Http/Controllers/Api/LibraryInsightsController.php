@@ -7,6 +7,7 @@ use App\Services\Ai\LibraryDemandService;
 use App\Services\Ai\LibraryInsightsNarrator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Validation\ValidationException;
 
 class LibraryInsightsController extends Controller
 {
@@ -19,12 +20,12 @@ class LibraryInsightsController extends Controller
     /** GET /ai/insights?months=6 — numbers, forecasts, copy recommendations. */
     public function index(Request $request)
     {
-        $months = $this->months($request);
+        [$months, $days] = $this->period($request);
 
         $data = Cache::remember(
-            $this->cacheKey('analysis', $months),
+            $this->cacheKey('analysis', $months, $days),
             now()->addMinutes(config('library.insights.cache_minutes', 30)),
-            fn () => $this->demand->analyze($months)
+            fn () => $this->demand->analyze($months, null, $days)
         );
 
         return response()->json(['success' => true, 'data' => $data]);
@@ -33,12 +34,12 @@ class LibraryInsightsController extends Controller
     /** GET /ai/insights/briefing?months=6 — short written briefing. */
     public function briefing(Request $request)
     {
-        $months = $this->months($request);
+        [$months, $days] = $this->period($request);
 
         $briefing = Cache::remember(
-            $this->cacheKey('briefing', $months),
+            $this->cacheKey('briefing', $months, $days),
             now()->addMinutes(config('library.insights.cache_minutes', 30)),
-            fn () => $this->narrator->narrate($this->demand->analyze($months))
+            fn () => $this->narrator->narrate($this->demand->analyze($months, null, $days))
         );
 
         return response()->json(['success' => true, 'data' => $briefing]);
@@ -47,22 +48,36 @@ class LibraryInsightsController extends Controller
     /** POST /ai/insights/refresh — drop cached results after new activity. */
     public function refresh(Request $request)
     {
-        $months = $this->months($request);
-        Cache::forget($this->cacheKey('analysis', $months));
-        Cache::forget($this->cacheKey('briefing', $months));
+        [$months, $days] = $this->period($request);
+        Cache::forget($this->cacheKey('analysis', $months, $days));
+        Cache::forget($this->cacheKey('briefing', $months, $days));
 
         return $this->index($request);
     }
 
-    private function months(Request $request): int
+    private function period(Request $request): array
     {
-        $request->validate(['months' => 'nullable|integer|min:3|max:24']);
+        $validated = $request->validate([
+            'months' => 'nullable|integer|min:3|max:24',
+            'days' => 'nullable|integer|in:7,14,30',
+        ]);
 
-        return (int) $request->input('months', config('library.insights.default_months', 6));
+        if ($request->filled('months') && $request->filled('days')) {
+            throw ValidationException::withMessages([
+                'period' => 'Choose either a day range or a month range.',
+            ]);
+        }
+
+        return [
+            (int) ($validated['months'] ?? config('library.insights.default_months', 6)),
+            isset($validated['days']) ? (int) $validated['days'] : null,
+        ];
     }
 
-    private function cacheKey(string $type, int $months): string
+    private function cacheKey(string $type, int $months, ?int $days = null): string
     {
-        return "library_insights:{$type}:{$months}:" . now()->format('Y-m-d');
+        $period = $days === null ? "{$months}m" : "{$days}d";
+
+        return "library_insights:v3:{$type}:{$period}:" . now()->format('Y-m-d');
     }
 }

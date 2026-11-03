@@ -1,6 +1,6 @@
-import { createContext, useContext, useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 
-const ToastContext = createContext(null);
+import { ToastContext } from './useToast';
 
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
@@ -9,13 +9,13 @@ export function ToastProvider({ children }) {
     const id = Date.now() + Math.random();
     const toast = { id, message, type };
     setToasts((prev) => [...prev, toast]);
-    
+
     if (duration > 0) {
       setTimeout(() => {
         setToasts((prev) => prev.filter((t) => t.id !== id));
       }, duration);
     }
-    
+
     return id;
   }, []);
 
@@ -31,7 +31,7 @@ export function ToastProvider({ children }) {
   return (
     <ToastContext.Provider value={{ toasts, showToast, removeToast, success, error, warning, info }}>
       {children}
-      <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2" role="region" aria-live="polite">
+      <div className="toast-stack" role="region" aria-label="Status messages" aria-live="polite">
         {toasts.map((toast) => (
           <Toast key={toast.id} toast={toast} onClose={removeToast} />
         ))}
@@ -72,7 +72,7 @@ function Toast({ toast, onClose }) {
   };
 
   return (
-    <div className={`${typeClasses[toast.type] || typeClasses.info} flex items-center gap-3`} role="alert">
+    <div className={`app-toast ${typeClasses[toast.type] || typeClasses.info} flex items-center gap-3`} role="alert">
       {icons[toast.type] || icons.info}
       <p className="flex-1 text-sm">{toast.message}</p>
       <button
@@ -86,12 +86,4 @@ function Toast({ toast, onClose }) {
       </button>
     </div>
   );
-}
-
-export function useToast() {
-  const context = useContext(ToastContext);
-  if (!context) {
-    throw new Error('useToast must be used within a ToastProvider');
-  }
-  return context;
 }

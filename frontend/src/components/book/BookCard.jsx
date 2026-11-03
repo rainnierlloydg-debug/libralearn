@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react';
-import { Heart, Bookmark, BookOpen, Calendar, MapPin, ExternalLink } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
+import { Heart, BookOpen, Calendar, MapPin, ExternalLink } from 'lucide-react';
 import Badge from '../ui/Badge';
 import Button from '../ui/Button';
 import { formatDate } from '../../utils/helpers';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../contexts/useAuth';
 import api from '../../utils/api';
-import { useToast } from '../../contexts/ToastContext';
+import { useToast } from '../../contexts/useToast';
 
 function BookCard({
   book,
@@ -14,7 +15,9 @@ function BookCard({
   onBorrow,
   onReserve,
   onSave,
-  onViewDetails
+  onViewDetails,
+  onEdit,
+  onDelete
 }) {
   const { user, isStudent } = useAuth();
   const { success, error } = useToast();
@@ -24,21 +27,25 @@ function BookCard({
   const [isReserving, setIsReserving] = useState(false);
   const [coverFailed, setCoverFailed] = useState(false);
 
-  const checkSaved = async () => {
+  const checkSaved = useCallback(async () => {
     if (!user) return;
     try {
       const response = await api.get(`/books/${book.id}`);
       if (response.data.success) {
         setIsSaved(response.data.data.is_saved || false);
       }
-    } catch (err) {
+    } catch {
       // Ignore
     }
-  };
+  }, [book.id, user]);
 
   useEffect(() => {
-    checkSaved();
-  }, [book.id, user]);
+    // Defer network setup and cancel it if this view changes before it starts.
+    const timer = setTimeout(() => {
+      checkSaved();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [checkSaved]);
 
   const handleSave = async () => {
     if (!user) return;
@@ -54,7 +61,7 @@ function BookCard({
         success('Book saved!');
       }
       onSave?.(!isSaved);
-    } catch (err) {
+    } catch {
       error('Failed to save book');
     } finally {
       setIsSaving(false);
@@ -105,9 +112,19 @@ function BookCard({
     damaged: 'accent',
   };
 
+  const detailsLink = isStudent && (
+    <Link
+      to={`/books/${book.id}`}
+      className="book-card-link"
+      aria-label={`View full details of ${book.title}`}
+      onClick={onViewDetails ? (event) => { event.preventDefault(); onViewDetails(book); } : undefined}
+    />
+  );
+
   if (variant === 'grid') {
     return (
       <article className={`card card-hover group relative overflow-hidden ${isStudent ? 'student-book-card' : ''}`}>
+        {detailsLink}
         <div className={`relative overflow-hidden bg-[var(--surface-2)] ${isStudent ? 'h-44 sm:h-48' : 'aspect-[2/3]'}`}>
           {getCoverUrl() && !coverFailed ? (
             <img
@@ -138,11 +155,12 @@ function BookCard({
             </div>
           )}
         </div>
-        <div className={isStudent ? 'space-y-2 p-3' : 'space-y-3 p-4'}>
+        <div className={isStudent ? 'book-card-body space-y-3 p-4' : 'space-y-3 p-4'}>
           <h3 className="font-semibold text-[var(--text)] line-clamp-2 group-hover:text-primary-600 transition-colors">
             {book.title}
           </h3>
           <p className="text-sm text-[var(--text-muted)] line-clamp-1">{book.author}</p>
+          {isStudent && <Link to={`/books/${book.id}`} className="book-details-button btn btn-secondary btn-sm self-start" onClick={onViewDetails ? (event) => { event.preventDefault(); onViewDetails(book); } : undefined}>View details</Link>}
 
           <div className="flex flex-wrap gap-1.5">
             {book.genre && <Badge variant="primary" size="sm">{book.genre}</Badge>}
@@ -158,7 +176,7 @@ function BookCard({
           )}
 
           {showActions && isStudent && (
-            <div className="flex gap-2 pt-2 border-t-[var(--border)]">
+            <div className="book-card-actions flex flex-wrap gap-2 pt-3 border-t border-[var(--border)]">
               {book.status === 'available' && book.source === 'gsa' && (
                 <>
                   <Button
@@ -171,18 +189,9 @@ function BookCard({
                   >
                     {isBorrowing ? 'Requesting...' : 'Borrow'}
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={handleReserve}
-                    disabled={isReserving}
-                    leftIcon={<Calendar className="w-4 h-4" />}
-                  >
-                    Reserve
-                  </Button>
                 </>
               )}
-              {book.status !== 'available' && book.source === 'gsa' && (
+              {['borrowed', 'reserved', 'overdue'].includes(book.status) && book.source === 'gsa' && (
                 <Button
                   size="sm"
                   variant="secondary"
@@ -196,7 +205,7 @@ function BookCard({
               )}
               <Button
                 size="sm"
-                variant={isSaved ? 'danger' : 'ghost'}
+                variant={isSaved ? 'danger' : 'secondary'}
                 onClick={handleSave}
                 disabled={isSaving}
                 leftIcon={<Heart className={`w-4 h-4 ${isSaved ? 'fill-current' : ''}`} />}
@@ -208,14 +217,24 @@ function BookCard({
           )}
 
           {showActions && !isStudent && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="w-full"
-              onClick={onViewDetails}
-            >
-              View Details
-            </Button>
+            <div className="flex gap-2 pt-2 border-t-[var(--border)]">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="flex-1"
+                onClick={onEdit || onViewDetails}
+              >
+                Edit
+              </Button>
+              <Button
+                size="sm"
+                variant="danger"
+                className="flex-1"
+                onClick={onDelete}
+              >
+                Delete
+              </Button>
+            </div>
           )}
         </div>
       </article>
@@ -224,7 +243,8 @@ function BookCard({
 
   // List variant
   return (
-    <div className="card card-hover p-4">
+    <div className="book-list-card card card-hover relative p-4">
+      {detailsLink}
       <div className="flex gap-4">
         <div className="relative w-20 h-28 flex-shrink-0 overflow-hidden rounded-lg bg-[var(--surface-2)]">
           {getCoverUrl() && !coverFailed ? (
@@ -238,15 +258,11 @@ function BookCard({
           ) : (
             <div className="book-cover-fallback" aria-label={`No cover available for ${book.title}`}>
               <BookOpen aria-hidden="true" />
-              <span>{book.title}</span>
-              <small>{book.author}</small>
             </div>
           )}
-          <Badge variant={statusColors[book.status] || 'primary'} className="absolute top-2 right-2">
-            {book.status.charAt(0).toUpperCase() + book.status.slice(1)}
-          </Badge>
         </div>
-        <div className="flex-1 min-w-0">
+        <div className="book-list-body flex-1 min-w-0">
+          <div className="min-w-0">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <h3 className="font-semibold text-[var(--text)] truncate">{book.title}</h3>
@@ -256,6 +272,9 @@ function BookCard({
                 {book.subject && <Badge variant="accent" size="sm">{book.subject}</Badge>}
               </div>
             </div>
+            <Badge variant={statusColors[book.status] || 'primary'} className="book-list-status">
+              {book.status.charAt(0).toUpperCase() + book.status.slice(1)}
+            </Badge>
             {book.source === 'online' && (
               <Badge variant="teal" className="flex-shrink-0">
                 <ExternalLink className="w-3 h-3 mr-1" />
@@ -279,26 +298,25 @@ function BookCard({
             {book.publication_date && <span>Published: {formatDate(book.publication_date)}</span>}
           </div>
 
+          {isStudent && <Link to={`/books/${book.id}`} className="book-details-button btn btn-secondary btn-sm mt-3" onClick={onViewDetails ? (event) => { event.preventDefault(); onViewDetails(book); } : undefined}>View details</Link>}
+          </div>
           {showActions && isStudent && (
-            <div className="mt-4 flex gap-2">
+            <div className="book-card-actions mt-4 flex flex-wrap gap-2">
               {book.status === 'available' && book.source === 'gsa' && (
                 <>
                   <Button size="sm" variant="primary" onClick={handleBorrow} disabled={isBorrowing} leftIcon={<BookOpen className="w-4 h-4" />}>
                     {isBorrowing ? 'Requesting...' : 'Borrow'}
                   </Button>
-                  <Button size="sm" variant="secondary" onClick={handleReserve} disabled={isReserving} leftIcon={<Calendar className="w-4 h-4" />}>
-                    Reserve
-                  </Button>
                 </>
               )}
-              {book.status !== 'available' && book.source === 'gsa' && (
+              {['borrowed', 'reserved', 'overdue'].includes(book.status) && book.source === 'gsa' && (
                 <Button size="sm" variant="secondary" onClick={handleReserve} disabled={isReserving} leftIcon={<Calendar className="w-4 h-4" />}>
                   Reserve
                 </Button>
               )}
               <Button
                 size="sm"
-                variant={isSaved ? 'danger' : 'ghost'}
+                variant={isSaved ? 'danger' : 'secondary'}
                 onClick={handleSave}
                 disabled={isSaving}
                 leftIcon={<Heart className={`w-4 h-4 ${isSaved ? 'fill-current' : ''}`} />}

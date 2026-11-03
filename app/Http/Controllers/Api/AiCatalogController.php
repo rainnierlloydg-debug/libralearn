@@ -9,6 +9,7 @@ use App\Models\Interest;
 use App\Models\LibraryLocation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use App\Services\Ai\GeminiClient;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -90,8 +91,12 @@ class AiCatalogController extends Controller
             $job->update(['status' => 'processing']);
             $extractedData = $this->extractTextFromImage($job->uploaded_image);
             $ocrMetadata = $extractedData['metadata'] ?? [];
-            $aiMetadata = $this->extractMetadataWithOpenAI($job->uploaded_image, $extractedData['text'] ?? '');
+            $aiMetadata = $this->extractMetadataWithGemini($job->uploaded_image, $extractedData['text'] ?? '');
             $metadata = array_merge($ocrMetadata, $aiMetadata);
+            $metadata['_sources'] = array_values(array_filter([
+                !empty($extractedData['text']) ? 'ocr' : null,
+                $aiMetadata ? 'gemini' : null,
+            ]));
 
             $job->update([
                 'extracted_text' => $extractedData['text'] ?? '',
@@ -124,7 +129,7 @@ class AiCatalogController extends Controller
         } catch (\Exception $e) {
             $job->update([
                 'status' => 'failed',
-                'error_message' => $e->getMessage(),
+                'error_message' => 'Image processing failed. Please retry or enter the book details manually.',
             ]);
         }
     }
@@ -176,9 +181,9 @@ class AiCatalogController extends Controller
         }
     }
 
-    protected function extractMetadataWithOpenAI(string $imagePath, string $ocrText): array
+    protected function extractMetadataWithGemini(string $imagePath, string $ocrText): array
     {
-        $apiKey = config('services.openai.api_key');
+        $apiKey = config('services.gemini.catalog_api_key') ?: config('services.gemini.api_key');
         if (!$apiKey) {
             return [];
         }
@@ -189,43 +194,40 @@ class AiCatalogController extends Controller
             $imageData = base64_encode($disk->get($imagePath));
             $ocrText = $ocrText !== '' ? Str::limit($ocrText, 12000) : 'No OCR text was available.';
 
-            $response = Http::withToken($apiKey)
-                ->acceptJson()
-                ->timeout(25)
-                ->post(config('services.openai.api_url'), [
-                    'model' => config('services.openai.model', 'gpt-4o-mini'),
-                    'temperature' => 0.1,
-                    'response_format' => ['type' => 'json_object'],
-                    'messages' => [
-                        [
-                            'role' => 'system',
-                            'content' => 'You catalog books from cover images and OCR. Extract only information supported by the image or OCR; never guess. Return one JSON object with keys title, author, isbn, publisher, publication_year, edition, language, description, genre, and subject. Use null for unknown values. Keep description concise.',
-                        ],
-                        [
-                            'role' => 'user',
-                            'content' => [
-                                ['type' => 'text', 'text' => "Read this book cover. Use the OCR text as supporting evidence, but correct obvious OCR errors.\n\nOCR text:\n{$ocrText}"],
-                                [
-                                    'type' => 'image_url',
-                                    'image_url' => [
-                                        'url' => "data:{$mimeType};base64,{$imageData}",
-                                        'detail' => 'high',
-                                    ],
-                                ],
-                            ],
-                        ],
+            $response = app(GeminiClient::class)->generate([
+                    'system_instruction' => [
+                        'parts' => [[
+                            'text' => 'You catalog books from cover images and OCR. Extract only information supported by the image or OCR; never guess. Return one JSON object with keys title, author, isbn, publisher, publication_year, edition, language, description, genre, and subject. Use null for unknown values. Keep description concise.'
+                        ]]
                     ],
-                ]);
+                    'contents' => [[
+                        'role' => 'user',
+                        'parts' => [
+                            ['text' => "Read this book cover. Use the OCR text as supporting evidence, but correct obvious OCR errors.\n\nOCR text:\n{$ocrText}"],
+                            [
+                                'inline_data' => [
+                                    'mime_type' => $mimeType,
+                                    'data' => $imageData
+                                ]
+                            ]
+                        ]
+                    ]],
+                    'generationConfig' => [
+                        'temperature' => 0.1,
+                        'maxOutputTokens' => 1000,
+                        'responseMimeType' => 'application/json',
+                    ],
+                ], 30, $apiKey);
 
             if (!$response->successful()) {
-                Log::warning('OpenAI book metadata extraction failed.', ['status' => $response->status()]);
+                Log::warning('Gemini book metadata extraction failed.', ['status' => $response->status()]);
                 return [];
             }
 
-            $content = data_get($response->json(), 'choices.0.message.content');
-            $metadata = is_string($content) ? json_decode($content, true) : null;
+            $text = app(GeminiClient::class)->text($response);
+            $metadata = json_decode($text, true);
             if (!is_array($metadata)) {
-                Log::warning('OpenAI returned invalid book metadata JSON.');
+                Log::warning('Gemini returned invalid book metadata JSON.');
                 return [];
             }
 
@@ -233,6 +235,9 @@ class AiCatalogController extends Controller
             $extracted = [];
             foreach ($fields as $field) {
                 $value = $metadata[$field] ?? null;
+                if ($field === 'publication_year' && is_int($value)) {
+                    $value = (string) $value;
+                }
                 if (is_string($value) && trim($value) !== '') {
                     $extracted[$field] = trim($value);
                 }
@@ -240,7 +245,7 @@ class AiCatalogController extends Controller
 
             return $extracted;
         } catch (\Throwable $e) {
-            Log::warning('OpenAI book metadata extraction request failed.', ['message' => $e->getMessage()]);
+            Log::warning('Gemini book metadata extraction request failed.', ['message' => app(GeminiClient::class)->redact($e->getMessage())]);
             return [];
         }
     }
@@ -362,7 +367,7 @@ class AiCatalogController extends Controller
      */
     protected function redactKeys(string $text): string
     {
-        $keys = array_filter([config('services.google_vision.api_key'), config('services.google_books.api_key')]);
+        $keys = array_filter([config('services.google_vision.api_key'), config('services.google_books.api_key'), config('services.gemini.api_key'), config('services.gemini.catalog_api_key')]);
 
         $text = preg_replace('/([?&]key=)[^&\s]+/i', '$1[redacted]', $text);
 
@@ -405,7 +410,7 @@ class AiCatalogController extends Controller
         $result['publication_date'] = $this->normalizePublicationDate($result['publication_date']);
 
         // OCR data as fallback
-        $sources[] = 'ocr';
+        $sources = array_merge($sources, $ocrData['_sources'] ?? ($ocrData ? ['ocr'] : []));
 
         $result['sources'] = $sources;
 

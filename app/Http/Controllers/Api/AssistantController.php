@@ -12,7 +12,7 @@ use App\Services\Ai\AssistantKnowledge;
 use App\Services\Ai\LibraryDemandService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Http;
+use App\Services\Ai\GeminiClient;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -40,7 +40,17 @@ class AssistantController extends Controller
             'messages.*.content' => 'required|string|max:2000',
         ]);
 
-        $apiKey = config('services.openai.api_key');
+        if (end($validated['messages'])['role'] !== 'user') {
+            return response()->json(['message' => 'The last message must be a user question.'], 422);
+        }
+
+        // Browser greetings and trimmed history can begin with an assistant message.
+        // Provider conversations must start with a user turn.
+        while ($validated['messages'][0]['role'] !== 'user') {
+            array_shift($validated['messages']);
+        }
+
+        $apiKey = config('services.gemini.api_key');
         if (!$apiKey) {
             return response()->json([
                 'message' => 'The library assistant is not configured yet. Please contact the librarian.',
@@ -50,24 +60,32 @@ class AssistantController extends Controller
         $user = $request->user();
         $lastQuestion = collect($validated['messages'])->where('role', 'user')->last()['content'] ?? '';
 
-        $systemPrompt = $this->systemPrompt($user, $lastQuestion, $demand);
-
         try {
-            $response = Http::withToken($apiKey)
-                ->acceptJson()
-                ->timeout(30)
-                ->post(config('services.openai.api_url'), [
-                    'model' => config('services.openai.model', 'gpt-4o-mini'),
-                    'messages' => array_merge(
-                        [['role' => 'system', 'content' => $systemPrompt]],
-                        $validated['messages']
-                    ),
-                    'temperature' => 0.3,
-                    'max_tokens' => 600,
+            $systemPrompt = $this->systemPrompt($user, $lastQuestion, $demand);
+            $response = app(GeminiClient::class)->generate([
+                    'system_instruction' => [
+                        'parts' => [['text' => $systemPrompt]]
+                    ],
+                    'contents' => array_map(function ($msg) {
+                        return [
+                            'role' => $msg['role'] === 'user' ? 'user' : 'model',
+                            'parts' => [['text' => $msg['content']]]
+                        ];
+                    }, $validated['messages']),
+                    'generationConfig' => [
+                        'temperature' => 0.3,
+                        'maxOutputTokens' => 600,
+                    ],
                 ]);
 
             if (!$response->successful()) {
-                Log::warning('Assistant OpenAI request failed.', ['status' => $response->status()]);
+                Log::warning('Assistant Gemini request failed.', ['status' => $response->status()]);
+                if (in_array($response->status(), [401, 403], true)) {
+                    return response()->json([
+                        'message' => 'The assistant\'s AI access is not configured correctly. Please contact the librarian.',
+                    ], 503);
+                }
+
                 $status = $response->status() === 429 ? 429 : 502;
 
                 return response()->json([
@@ -77,14 +95,14 @@ class AssistantController extends Controller
                 ], $status);
             }
 
-            $reply = data_get($response->json(), 'choices.0.message.content');
+            $reply = app(GeminiClient::class)->text($response);
             if (!is_string($reply) || trim($reply) === '') {
                 return response()->json(['message' => 'The assistant returned an empty response. Please try again.'], 502);
             }
 
             return response()->json(['reply' => trim($reply)]);
         } catch (\Throwable $exception) {
-            Log::warning('Assistant request failed.', ['message' => $exception->getMessage()]);
+            Log::warning('Assistant request failed.', ['message' => app(GeminiClient::class)->redact($exception->getMessage())]);
 
             return response()->json(['message' => 'The assistant could not connect right now. Please try again later.'], 502);
         }

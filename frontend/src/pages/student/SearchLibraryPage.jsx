@@ -1,7 +1,6 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Search, Filter, X, ChevronDown, Grid, List } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import { Search, Filter, X, Grid, List } from 'lucide-react';
 import api from '../../utils/api';
 import BookCard from '../../components/book/BookCard';
 import Button from '../../components/ui/Button';
@@ -11,10 +10,11 @@ import Card from '../../components/ui/Card';
 import { SkeletonCard } from '../../components/ui/Skeleton';
 
 function SearchLibraryPage() {
-  const { user } = useAuth();
+
   const [searchParams, setSearchParams] = useSearchParams();
   const [books, setBooks] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [viewMode, setViewMode] = useState('grid');
@@ -24,21 +24,16 @@ function SearchLibraryPage() {
   const [sortBy, setSortBy] = useState('title');
   const [sortOrder, setSortOrder] = useState('asc');
 
-  const initialQuery = searchParams.get('q') || '';
-  const [query, setQuery] = useState(initialQuery);
+  const query = searchParams.get('q') || '';
 
-  const [filters, setFilters] = useState({
+  const filters = useMemo(() => ({
     genre: searchParams.get('genre') || '',
     subject: searchParams.get('subject') || '',
     status: searchParams.get('status') || '',
     library_section: searchParams.get('library_section') || '',
-  });
+  }), [searchParams]);
 
-  useEffect(() => {
-    fetchGenresAndSubjects();
-  }, []);
-
-  const fetchGenresAndSubjects = async () => {
+  const fetchGenresAndSubjects = useCallback(async () => {
     try {
       const [genresRes, subjectsRes] = await Promise.all([
         api.get('/books/genres'),
@@ -49,10 +44,11 @@ function SearchLibraryPage() {
     } catch (err) {
       console.error('Failed to fetch genres/subjects:', err);
     }
-  };
+  }, []);
 
-  const fetchBooks = async (pageNum = 1) => {
+  const fetchBooks = useCallback(async (pageNum = 1, signal) => {
     setLoading(true);
+    setError('');
     try {
       const params = new URLSearchParams({
         page: pageNum,
@@ -65,83 +61,106 @@ function SearchLibraryPage() {
         if (value) params.append(key, value);
       });
 
-      const response = await api.get(`/books?${params.toString()}`);
+      const response = await api.get(`/books?${params.toString()}`, { signal });
+      if (!response.data.success) throw new Error('Unable to load books');
       if (response.data.success) {
         setBooks(response.data.data.data);
         setTotal(response.data.data.total);
         setPage(response.data.data.current_page);
       }
     } catch (err) {
+      if (signal?.aborted) return;
+      setError('Unable to load the library collection. Please try again.');
       console.error('Failed to fetch books:', err);
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchBooks(1);
   }, [query, filters, sortBy, sortOrder]);
 
+  useEffect(() => {
+    // Defer network setup and cancel it if this view changes before it starts.
+    const timer = setTimeout(() => {
+      fetchGenresAndSubjects();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchGenresAndSubjects]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      fetchBooks(1, controller.signal);
+    }, 250);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [fetchBooks]);
+
   const handleSearch = (searchQuery) => {
-    setQuery(searchQuery);
-    setSearchParams({ q: searchQuery });
-    fetchBooks(1);
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current);
+      if (searchQuery) params.set('q', searchQuery);
+      else params.delete('q');
+      params.delete('page');
+      return params;
+    }, { replace: true });
   };
 
   const handleFilterChange = (key, value) => {
-    const newFilters = { ...filters, [key]: value };
-    setFilters(newFilters);
     const params = new URLSearchParams(searchParams);
     if (value) params.set(key, value);
     else params.delete(key);
     params.delete('page');
     setSearchParams(params);
-    fetchBooks(1);
   };
 
   const clearFilters = () => {
-    setFilters({ genre: '', subject: '', status: '', library_section: '' });
     setSearchParams({ q: query });
-    fetchBooks(1);
   };
 
   const hasActiveFilters = Object.values(filters).some(v => v);
 
   return (
-    <div className="space-y-6">
+    <div className="library-search-page space-y-6">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-heading font-bold text-[var(--text)]">Search Library</h1>
-          <p className="text-[var(--text-muted)]">Find books in the GSA library catalog</p>
+          <h1 className="text-2xl font-heading font-bold text-[var(--text)]">All Books</h1>
+          <p className="text-[var(--text-muted)] mt-1">Explore the collection. Select a book to see its full details.</p>
         </div>
-        <Link to="/online-search" className="btn-accent w-full md:w-auto">
-          <Search className="w-4 h-4" />
+        <div className="flex flex-wrap items-center gap-2">
+        {(query || hasActiveFilters) && (
+          <Button variant="secondary" onClick={() => setSearchParams({})}>Show All Books</Button>
+        )}
+        <Link to={query ? `/online-search?q=${encodeURIComponent(query)}` : '/online-search'} className="btn btn-accent w-full md:w-auto">
+          <Search className="w-4 h-4" aria-hidden="true" />
           Search Online
         </Link>
+        </div>
       </div>
 
       {/* Search bar and filters */}
-      <Card className="p-4">
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1">
+      <Card className="library-search-controls p-4">
+        <div className="library-search-toolbar">
+          <div className="min-w-0 flex-1">
             <label htmlFor="search-input" className="sr-only">Search books</label>
             <div className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--text-faint)]" />
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--text-faint)] pointer-events-none" aria-hidden="true" />
               <input
                 id="search-input"
                 type="search"
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => handleSearch(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSearch(e.target.value)}
                 placeholder="Search by title, author, subject, ISBN, or keywords..."
-                className="input pl-12 pr-4"
+                className="input library-search-input"
                 autoFocus
               />
               {query && (
                 <button
-                  onClick={() => { setQuery(''); handleSearch(''); }}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--text-faint)] hover:text-[var(--text)]"
+                  onClick={() => handleSearch('')}
+                  type="button"
+                  className="library-clear-search"
                   aria-label="Clear search"
                 >
                   <X className="w-5 h-5" />
@@ -150,7 +169,7 @@ function SearchLibraryPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="secondary" onClick={() => setFiltersOpen(!filtersOpen)}>
+            <Button variant="secondary" onClick={() => setFiltersOpen(!filtersOpen)} aria-expanded={filtersOpen} aria-controls="library-filters">
               <Filter className="w-4 h-4 mr-1" />
               Filters
               {hasActiveFilters && (
@@ -159,18 +178,20 @@ function SearchLibraryPage() {
                 </Badge>
               )}
             </Button>
-            <div className="flex items-center gap-1 border-[var(--border)] rounded-lg p-1">
+            <div className="library-view-toggle" role="group" aria-label="Book display">
               <button
                 onClick={() => setViewMode('grid')}
-                className={`p-2 rounded transition-colors ${viewMode === 'grid' ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600' : 'text-[var(--text-muted)] hover:text-[var(--text)]'}`}
+                className="library-view-button"
                 aria-label="Grid view"
+                aria-pressed={viewMode === 'grid'}
               >
                 <Grid className="w-5 h-5" />
               </button>
               <button
                 onClick={() => setViewMode('list')}
-                className={`p-2 rounded transition-colors ${viewMode === 'list' ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600' : 'text-[var(--text-muted)] hover:text-[var(--text)]'}`}
+                className="library-view-button"
                 aria-label="List view"
+                aria-pressed={viewMode === 'list'}
               >
                 <List className="w-5 h-5" />
               </button>
@@ -178,9 +199,35 @@ function SearchLibraryPage() {
           </div>
         </div>
 
+        <div className="library-results-toolbar">
+          <p className="text-sm text-[var(--text-muted)]" role="status">
+            {loading ? 'Loading books...' : error ? 'Collection unavailable' : total > 0 ? `Showing ${((page - 1) * 20) + 1} to ${Math.min(page * 20, total)} of ${total} books` : 'No books found'}
+            {query && <span> for <strong>"{query}"</strong></span>}
+          </p>
+          <div className="library-sort-controls">
+            <Select
+              label="Sort by"
+              value={sortBy}
+              onChange={(e) => {
+                setSortBy(e.target.value);
+                setSortOrder(e.target.value === 'created_at' ? 'desc' : 'asc');
+              }}
+              options={[
+                { value: 'title', label: 'Title' },
+                { value: 'author', label: 'Author' },
+                { value: 'publication_date', label: 'Publication Date' },
+                { value: 'created_at', label: 'Recently Added' },
+              ]}
+            />
+            <Button variant="secondary" size="sm" onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')} aria-label={sortOrder === 'asc' ? 'Ascending order. Switch to descending order' : 'Descending order. Switch to ascending order'}>
+              {sortOrder === 'asc' ? 'Ascending' : 'Descending'}
+            </Button>
+          </div>
+        </div>
+
         {/* Filters panel */}
         {filtersOpen && (
-          <div className="mt-4 pt-4 border-t-[var(--border)] animate-slide-up">
+          <div id="library-filters" className="mt-4 pt-4 border-t border-[var(--border)] animate-slide-up">
             <div className="flex flex-wrap gap-4">
               <div className="flex-1 min-w-[200px]">
                 <Select
@@ -235,7 +282,7 @@ function SearchLibraryPage() {
                 />
               </div>
               <div className="flex items-end">
-                <Button variant="ghost" onClick={clearFilters}>
+                <Button variant="secondary" onClick={clearFilters}>
                   <X className="w-4 h-4 mr-1" />
                   Clear All
                 </Button>
@@ -245,56 +292,42 @@ function SearchLibraryPage() {
         )}
       </Card>
 
-      {/* Results */}
-      <div className="flex items-center justify-between">
-        <p className="text-[var(--text-muted)]">
-          {total > 0 ? `Showing ${((page - 1) * 20) + 1} to ${Math.min(page * 20, total)} of ${total} results` : 'No results found'}
-          {query && <span className="ml-2">for <strong>"{query}"</strong></span>}
-        </p>
-        <Select
-          value={sortBy}
-          onChange={(e) => {
-            setSortBy(e.target.value);
-            if (sortBy === e.target.value) {
-              setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-            }
-          }}
-          options={[
-            { value: 'title', label: 'Title' },
-            { value: 'author', label: 'Author' },
-            { value: 'publication_date', label: 'Publication Date' },
-            { value: 'created_at', label: 'Recently Added' },
-          ]}
-          className="w-auto"
-        />
-      </div>
-
       {loading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {[...Array(8)].map((_, i) => <SkeletonCard key={i} />)}
         </div>
+      ) : error ? (
+        <Card className="p-12 text-center" role="alert">
+          <p className="text-[var(--text-muted)] mb-4">{error}</p>
+          <Button variant="secondary" onClick={() => fetchBooks(1)}>Try Again</Button>
+        </Card>
       ) : books.length === 0 ? (
-        <Card className="p-12 text-center">
+        <Card className="library-empty-state p-6 sm:p-12 text-center">
           <Search className="w-16 h-16 mx-auto text-[var(--text-faint)] mb-4" />
           <h3 className="text-xl font-semibold text-[var(--text)] mb-2">No books found</h3>
           <p className="text-[var(--text-muted)] mb-6">
-            {query 
+            {query
               ? `We couldn't find any books matching "${query}" in the GSA library.`
-              : 'No books match your current filters.'
+              : hasActiveFilters ? 'No books match your current filters.' : 'No books have been added to the library yet.'
             }
           </p>
+          <div className="flex flex-wrap justify-center gap-3">
+          {(query || hasActiveFilters) && (
+            <Button variant="secondary" onClick={() => setSearchParams({})}>Show All Books</Button>
+          )}
           {query && (
-            <Link to={`/online-search?q=${encodeURIComponent(query)}`} className="btn-accent inline-flex items-center gap-2">
-              <ExternalLink className="w-4 h-4" />
+            <Link to={`/online-search?q=${encodeURIComponent(query)}`} className="btn btn-accent">
+              <Search className="w-4 h-4" aria-hidden="true" />
               Search Online Instead
             </Link>
           )}
-          {!query && (
+          {!query && hasActiveFilters && (
             <Button variant="secondary" onClick={clearFilters}>
               <X className="w-4 h-4 mr-1" />
               Clear Filters
             </Button>
           )}
+          </div>
         </Card>
       ) : (
         <>

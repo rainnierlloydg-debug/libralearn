@@ -28,7 +28,7 @@ class AiCatalogVisionTest extends TestCase
         Http::preventStrayRequests();
         config([
             'services.google_vision.api_key' => 'test-vision-key',
-            'services.openai.api_key' => null,
+            'services.gemini.api_key' => null,
             'services.google_books.api_key' => 'test-books-key',
             'services.google_vision.api_url' => 'https://vision.googleapis.com/v1/images:annotate',
             'services.open_library.api_url' => 'https://openlibrary.org/search.json',
@@ -200,5 +200,68 @@ class AiCatalogVisionTest extends TestCase
         $this->postJson("/api/ai-catalog/{$job->id}/confirm", ['title' => 'Real Title', 'author' => 'Real Author', 'isbn' => 'Not detected'])
             ->assertOk()
             ->assertJsonPath('data.isbn', null);
+    }
+
+    public function test_identification_api_uses_gemini_image_input_and_numeric_publication_year(): void
+    {
+        config(['services.gemini.api_key' => 'test-gemini-key', 'services.google_vision.api_key' => null]);
+        Http::fake([
+            'generativelanguage.googleapis.com/*' => Http::response(['candidates' => [[
+                'content' => ['parts' => [['text' => json_encode(['title' => 'Cover Title', 'author' => 'Cover Author', 'publication_year' => 2024])]]],
+            ]]]),
+            'openlibrary.org/*' => Http::response(['docs' => []]),
+            'www.googleapis.com/books/*' => Http::response(['items' => []]),
+        ]);
+        $file = UploadedFile::fake()->createWithContent('cover.png', base64_decode(self::PNG));
+        $this->post('/api/ai/identify-image', ['image' => $file], ['Accept' => 'application/json'])
+            ->assertCreated()->assertJsonPath('data.status', 'needs_review')
+            ->assertJsonPath('data.final_metadata.title', 'Cover Title')
+            ->assertJsonPath('data.final_metadata.sources', ['gemini'])
+            ->assertJsonPath('data.final_metadata.publication_date', '2024-01-01');
+        Http::assertSent(fn ($r) => str_contains($r->url(), ':generateContent')
+            && $r->hasHeader('X-Goog-Api-Key', 'test-gemini-key') && !str_contains($r->url(), 'key=')
+            && $r['contents'][0]['parts'][1]['inline_data']['data'] === self::PNG);
+    }
+
+    public function test_students_cannot_identify_images_and_non_images_are_rejected(): void
+    {
+        $this->post('/api/ai/identify-image', ['image' => UploadedFile::fake()->createWithContent('cover.txt', 'not an image')], ['Accept' => 'application/json'])
+            ->assertUnprocessable();
+        Sanctum::actingAs(User::factory()->create(['role' => 'student', 'status' => 'active']));
+        $this->postJson('/api/ai/identify-image')->assertForbidden();
+    }
+
+    public function test_cataloging_uses_its_own_key_and_preserves_the_assistant_key(): void
+    {
+        config([
+            'services.google_vision.api_key' => null,
+            'services.gemini.api_key' => 'assistant-key',
+            'services.gemini.catalog_api_key' => 'catalog-key',
+        ]);
+        Http::fake([
+            'generativelanguage.googleapis.com/*' => Http::response(['candidates' => [[
+                'content' => ['parts' => [['text' => '{"title":"Sample Cover","author":"Sample Writer"}']]],
+            ]]]),
+            'openlibrary.org/*' => Http::response(['docs' => []]),
+            'www.googleapis.com/books/*' => Http::response(['items' => []]),
+        ]);
+        $job = $this->upload();
+        $this->assertSame('Sample Cover', $job->final_metadata['title']);
+        $this->assertSame('assistant-key', config('services.gemini.api_key'));
+        Http::assertSent(fn ($r) => str_contains($r->url(), ':generateContent') && $r->hasHeader('X-Goog-Api-Key', 'catalog-key'));
+        Http::assertNotSent(fn ($r) => $r->hasHeader('X-Goog-Api-Key', 'assistant-key'));
+    }
+
+    public function test_catalog_key_is_redacted_from_connection_errors(): void
+    {
+        config(['services.google_vision.api_key' => null, 'services.gemini.catalog_api_key' => 'catalog-key']);
+        Http::fake(fn () => throw new \Illuminate\Http\Client\ConnectionException('Connection failed with catalog-key'));
+        \Illuminate\Support\Facades\Log::spy();
+        $job = $this->upload();
+        $this->assertSame('needs_review', $job->status);
+        \Illuminate\Support\Facades\Log::shouldHaveReceived('warning')->withArgs(fn ($message, $context) =>
+            $message === 'Gemini book metadata extraction request failed.'
+            && !str_contains($context['message'], 'catalog-key')
+            && str_contains($context['message'], '[redacted]'))->once();
     }
 }

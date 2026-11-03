@@ -3,6 +3,8 @@
     "private": true,
     "type": "module",
     "scripts": {
+        "test": "php artisan test --compact",
+        "lint": "npm --prefix frontend run lint",
         "build": "vite build",
         "dev": "vite"
     },

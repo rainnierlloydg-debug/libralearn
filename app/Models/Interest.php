@@ -10,6 +10,7 @@ class Interest extends Model
         'name',
         'type',
         'description',
+        'slug',
     ];
 
     protected $casts = [

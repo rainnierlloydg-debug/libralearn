@@ -1,0 +1,95 @@
+.borrowing-page { --borrow-accent: #4338ca; --borrow-tint: #eef2ff; display: grid; gap: 24px; max-width: 1440px; margin: 0 auto; }
+.admin-shell[data-theme='dark'] .borrowing-page { --borrow-accent: #b2dbe8; --borrow-tint: #293e50; }
+.borrowing-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.borrowing-heading p { margin-top: 6px; }
+.borrowing-heading-label { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); }
+.admin-workspace .borrowing-page .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 0; overflow: hidden; }
+.borrowing-quick-filters { display: flex; flex-wrap: wrap; gap: 8px; padding: 18px 22px; border-bottom: 1px solid var(--border); }
+.borrowing-quick-filters button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 13px; min-height: 42px; background: var(--surface); color: var(--text-muted); border: 1px solid var(--border); border-radius: 9px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.borrowing-quick-filters button:hover { background: var(--surface-2); border-color: var(--borrow-accent); }
+.borrowing-quick-filters button.is-active { background: var(--borrow-tint); border-color: var(--borrow-accent); color: var(--borrow-accent); }
+.borrowing-search-form { display: flex; align-items: flex-end; gap: 16px; padding: 20px 22px; }
+.borrowing-search-field { flex: 1; min-width: 0; }
+.borrowing-status-field { width: 220px; flex-shrink: 0; }
+.borrowing-search-form label { display: block; font-size: 12px; color: var(--text-muted); font-weight: 600; margin-bottom: 7px; }
+.borrowing-search-input { position: relative; }
+.borrowing-search-input > svg { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--text-faint); pointer-events: none; }
+.admin-workspace .borrowing-page .input, .admin-workspace .borrowing-action-modal .input { display: block; width: 100%; min-width: 0; min-height: 44px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; color: var(--text); background: var(--bg); font-size: 14px; line-height: 1.6; }
+.admin-workspace .borrowing-page .borrowing-search-input input { padding-left: 43px; }
+.borrowing-page .input::placeholder { color: var(--text-faint); opacity: 1; }
+.admin-workspace .borrowing-page .input:focus, .admin-workspace .borrowing-action-modal .input:focus { outline: 2px solid var(--borrow-accent, var(--primary)); outline-offset: 2px; border-color: var(--borrow-accent, var(--primary)); box-shadow: none; }
+.borrowing-page select, .borrowing-action-modal select { cursor: pointer; }
+.admin-shell[data-theme='dark'] .borrowing-page select, .admin-shell[data-theme='dark'] .borrowing-action-modal select { color-scheme: dark; }
+.borrowing-table-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px; border-bottom: 1px solid var(--border); }
+.admin-workspace .borrowing-page .borrowing-table-heading h2 { font-size: 16px; font-weight: 700; margin: 0; color: var(--text); }
+.borrowing-table-heading p { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+.borrowing-table-heading > span { color: var(--text-faint); font-size: 12px; }
+.borrowing-table-scroll { overflow-x: auto; scrollbar-width: thin; }
+.admin-workspace .borrowing-page .borrowing-table { width: 100%; min-width: 1060px; border-collapse: collapse; background: var(--surface); }
+.admin-workspace .borrowing-page .borrowing-table thead { background: var(--surface-2); }
+.admin-workspace .borrowing-page .borrowing-table th { padding: 14px 18px; border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; text-align: left; white-space: nowrap; }
+.admin-workspace .borrowing-page .borrowing-table td { padding: 18px; border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 12px; line-height: 1.6; background: transparent; }
+.admin-workspace .borrowing-page .borrowing-table tbody tr { background: var(--surface); }
+.admin-workspace .borrowing-page .borrowing-table tbody tr:hover { background: var(--surface-2); }
+.admin-workspace .borrowing-page .borrowing-table tbody tr.borrowing-row-overdue { background: color-mix(in srgb, #ef4444 5%, var(--surface)); }
+.admin-workspace .borrowing-page .borrowing-table tr:last-child td { border-bottom: 0; }
+.borrowing-table td:first-child { min-width: 180px; }
+.borrowing-table td:nth-child(2) { min-width: 220px; max-width: 280px; }
+.admin-workspace .borrowing-page .borrowing-table .borrowing-cell-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+.borrowing-book-title { overflow-wrap: anywhere; }
+.borrowing-table td p + p { font-size: 11px; color: var(--text-faint); }
+.borrowing-row-actions, .borrowing-row-actions > div { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.borrowing-table td:last-child { min-width: 205px; }
+.admin-workspace .borrowing-page .borrowing-status { display: inline-flex; align-items: center; padding: 5px 9px; border-radius: 6px; background: var(--borrow-tint); color: var(--borrow-accent); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.admin-workspace .borrowing-page .status-pending, .admin-workspace .borrowing-page .status-return_requested { background: #fef3c7; color: #92400e; }
+.admin-workspace .borrowing-page .status-returned { background: #d1fae5; color: #065f46; }
+.admin-workspace .borrowing-page .status-overdue, .admin-workspace .borrowing-page .status-rejected, .admin-workspace .borrowing-page .status-lost { background: #fee2e2; color: #991b1b; }
+.admin-shell[data-theme='dark'] .borrowing-page .status-pending, .admin-shell[data-theme='dark'] .borrowing-page .status-return_requested { background: #493d2c; color: #fcd34d; }
+.admin-shell[data-theme='dark'] .borrowing-page .status-returned { background: #244b43; color: #6ee7b7; }
+.admin-shell[data-theme='dark'] .borrowing-page .status-overdue, .admin-shell[data-theme='dark'] .borrowing-page .status-rejected, .admin-shell[data-theme='dark'] .borrowing-page .status-lost { background: #4b3039; color: #fca5a5; }
+.admin-workspace .borrowing-page .borrowing-overdue-text { color: #b91c1c; font-weight: 600; }
+.admin-shell[data-theme='dark'] .borrowing-page .borrowing-overdue-text { color: #fca5a5; }
+.borrowing-overdue-days { font-size: 11px; }
+.borrowing-no-action { font-size: 11px; color: var(--text-faint); }
+.borrowing-page .ui-button, .borrowing-action-modal .ui-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 40px; border: 1px solid var(--border); border-radius: 8px; padding: 9px 13px; font-size: 12px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+.borrowing-page .ui-button.bg-primary-600, .borrowing-action-modal .ui-button.bg-primary-600 { background: #4338ca; color: #fff; border-color: #4338ca; }
+.borrowing-page .ui-button.bg-primary-600:hover:not(:disabled), .borrowing-action-modal .ui-button.bg-primary-600:hover:not(:disabled) { background: #3730a3; border-color: #3730a3; }
+.borrowing-page .ui-button.bg-red-600, .borrowing-action-modal .ui-button.bg-red-600 { background: #b91c1c; color: #fff; border-color: #b91c1c; }
+.borrowing-page .ui-button.bg-red-600:hover:not(:disabled), .borrowing-action-modal .ui-button.bg-red-600:hover:not(:disabled) { background: #991b1b; }
+.borrowing-page .ui-button:hover:not(:disabled), .borrowing-action-modal .ui-button:hover:not(:disabled) { box-shadow: 0 3px 8px #00000012; }
+.borrowing-page button:disabled, .borrowing-action-modal button:disabled { cursor: not-allowed; opacity: .5; }
+.borrowing-page button:focus-visible, .borrowing-page .borrowing-table-scroll:focus-visible, .borrowing-action-modal button:focus-visible { outline: 3px solid var(--borrow-accent, var(--primary)); outline-offset: 3px; }
+.borrowing-pagination { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 18px 22px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-muted); }
+.borrowing-pagination > div { display: flex; align-items: center; gap: 14px; }
+.borrowing-empty { display: grid; justify-items: center; gap: 10px; padding: 28px; text-align: center; }
+.borrowing-empty h3 { font-size: 16px; margin: 0; }
+.borrowing-empty p { font-size: 13px; }
+.borrowing-loading { display: grid; gap: 12px; }
+.borrowing-error { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 20px; color: var(--text-muted); font-size: 13px; }
+.borrowing-error p { flex: 1; }
+.admin-workspace .borrowing-action-modal { width: min(100%, 520px); border-radius: 16px; background: var(--surface); border: 1px solid var(--border); }
+.admin-workspace .borrowing-action-modal > .flex.items-center.justify-between { background: var(--surface); padding: 20px 24px; border-bottom: 1px solid var(--border); }
+.admin-workspace .borrowing-action-modal #modal-title { color: var(--text); font-size: 19px; margin: 0; }
+.borrowing-action-modal > .flex > button { display: grid; place-items: center; width: 36px; height: 36px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; color: var(--text-muted); }
+.borrowing-action-modal > .p-5 { padding: 24px; }
+.borrowing-dialog-context { display: flex; align-items: flex-start; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); margin-bottom: 22px; }
+.borrowing-dialog-context > svg { flex-shrink: 0; color: var(--primary); margin-top: 2px; }
+.borrowing-dialog-context strong { color: var(--text); font-size: 14px; }
+.borrowing-dialog-context p { margin-top: 4px; color: var(--text-muted); font-size: 12px; }
+.borrowing-dialog-field label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: var(--text); }
+.borrowing-dialog-field label span { font-size: 12px; font-weight: 400; color: var(--text-faint); }
+.borrowing-dialog-field textarea { resize: vertical; }
+.borrowing-dialog-field > p, .borrowing-dialog-help { font-size: 13px; line-height: 1.7; color: var(--text-muted); margin-top: 8px; }
+.borrowing-dialog-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--border); }
+@media (max-width: 760px) {
+  .borrowing-heading-label { display: none; }
+  .borrowing-quick-filters { padding: 14px; gap: 8px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .borrowing-quick-filters button { padding: 9px; font-size: 12px; }
+  .borrowing-search-form { flex-direction: column; align-items: stretch; padding: 16px; }
+  .borrowing-status-field { width: 100%; }
+  .borrowing-table-heading { padding: 18px; }
+  .borrowing-table-heading > span { display: none; }
+  .borrowing-pagination { flex-direction: column; padding: 16px; gap: 12px; }
+  .borrowing-pagination > div { gap: 10px; }
+  .admin-workspace .borrowing-page .input { font-size: 16px; }
+}

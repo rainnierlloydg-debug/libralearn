@@ -9,8 +9,18 @@ import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import { Skeleton } from '../../components/ui/Skeleton';
+import ActivityChart from '../../components/analytics/ActivityChart';
+import { PredictionsPanel, CopyPlanner } from '../../components/analytics/PredictionsPanel';
+import './insights.css';
 
-const MONTH_OPTIONS = [3, 6, 12];
+const PERIOD_OPTIONS = [
+  { key: '7d', label: '1 wk', days: 7 },
+  { key: '14d', label: '2 wk', days: 14 },
+  { key: '30d', label: '1 mo', days: 30 },
+  { key: '3m', label: '3 mo', months: 3 },
+  { key: '6m', label: '6 mo', months: 6 },
+  { key: '12m', label: '12 mo', months: 12 },
+];
 
 const PRIORITY_VARIANT = { high: 'danger', medium: 'warning', low: 'info', none: 'info' };
 const CONFIDENCE_VARIANT = { high: 'success', medium: 'warning', low: 'info' };
@@ -24,50 +34,21 @@ function TrendIcon({ trend }) {
 
 function StatCard({ label, value, hint }) {
   return (
-    <Card className="p-4">
-      <p className="text-sm text-[var(--text-muted)]">{label}</p>
-      <p className="mt-1 text-3xl font-bold text-[var(--text)]">{value}</p>
-      {hint && <p className="mt-1 text-xs text-[var(--text-faint)]">{hint}</p>}
+    <Card className="insights-stat">
+      <p className="insights-stat-label">{label}</p>
+      <p className="insights-stat-value">{value}</p>
+      {hint && <p className="insights-stat-hint">{hint}</p>}
     </Card>
   );
 }
 
-/** Grouped bars: requests vs completed loans per month. */
 function MonthlyChart({ monthly }) {
-  const months = [...monthly.complete, { ...monthly.current, partial: true }];
-  const max = Math.max(1, ...months.map((m) => m.demand));
+  const periods = [...monthly.complete, { ...monthly.current, partial: true }];
+  return <ActivityChart periods={periods} />;
+}
 
-  return (
-    <div>
-      <div className="flex h-48 items-end gap-2 sm:gap-4" role="img" aria-label="Monthly requests and loans">
-        {months.map((m) => (
-          <div key={m.month} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end">
-            <div className="flex h-full w-full items-end justify-center gap-1">
-              <div
-                className={`w-1/2 max-w-6 rounded-t bg-primary-500 ${m.partial ? 'opacity-40' : ''}`}
-                style={{ height: `${(m.demand / max) * 100}%` }}
-                title={`${m.label}: ${m.demand} requests`}
-              />
-              <div
-                className={`w-1/2 max-w-6 rounded-t bg-teal-500 ${m.partial ? 'opacity-40' : ''}`}
-                style={{ height: `${(m.loans / max) * 100}%` }}
-                title={`${m.label}: ${m.loans} loans`}
-              />
-            </div>
-            <span className="mt-2 w-full truncate text-center text-[11px] text-[var(--text-muted)]">
-              {m.label.replace(' (to date)', '')}{m.partial ? '*' : ''}
-            </span>
-            <span className="text-[11px] font-medium text-[var(--text)]">{m.demand}</span>
-          </div>
-        ))}
-      </div>
-      <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-[var(--text-muted)]">
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-primary-500" /> Requests (borrow + reserve)</span>
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-teal-500" /> Completed loans</span>
-        <span>* month in progress</span>
-      </div>
-    </div>
-  );
+function RecentActivityChart({ buckets }) {
+  return <ActivityChart periods={buckets} weekly />;
 }
 
 function Sparkline({ values }) {
@@ -149,7 +130,7 @@ function CategoryBars({ rows }) {
 }
 
 function InsightsPage() {
-  const [months, setMonths] = useState(6);
+  const [period, setPeriod] = useState('12m');
   const [data, setData] = useState(null);
   const [briefing, setBriefing] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -158,13 +139,15 @@ function InsightsPage() {
   const [categoryTab, setCategoryTab] = useState('genre');
 
   const load = useCallback(async (refresh = false) => {
+    const selectedPeriod = PERIOD_OPTIONS.find((option) => option.key === period);
+    const params = selectedPeriod.days ? { days: selectedPeriod.days } : { months: selectedPeriod.months };
     setLoading(true);
     setBriefingLoading(true);
     setError('');
     try {
       const res = refresh
-        ? await api.post('/ai/insights/refresh', { months })
-        : await api.get('/ai/insights', { params: { months } });
+        ? await api.post('/ai/insights/refresh', params)
+        : await api.get('/ai/insights', { params });
       setData(res.data.data);
     } catch (err) {
       setError(err.response?.data?.message || 'Insights could not load right now. Please try again.');
@@ -173,39 +156,42 @@ function InsightsPage() {
     }
 
     try {
-      const res = await api.get('/ai/insights/briefing', { params: { months } });
+      const res = await api.get('/ai/insights/briefing', { params });
       setBriefing(res.data.data);
     } catch {
       setBriefing(null);
     } finally {
       setBriefingLoading(false);
     }
-  }, [months]);
+  }, [period]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const timer = setTimeout(() => load(), 0);
+    return () => clearTimeout(timer);
+  }, [load]);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
+    <div className="insights-page">
+      <div className="insights-heading flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-heading font-bold text-[var(--text)]">
-            <BrainCircuit className="h-6 w-6 text-primary-600" aria-hidden="true" /> AI Insights
+            <BrainCircuit className="h-6 w-6 text-primary-600" aria-hidden="true" /> Analytics & Predictions
           </h1>
           <p className="mt-1 text-sm text-[var(--text-muted)]">
-            Which books students use most, how demand is moving, and which titles need more copies.
+            Track borrowing activity, predict demand, and plan how many book copies to keep.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="inline-flex rounded-lg border border-[var(--border)] p-0.5" role="group" aria-label="Period">
-            {MONTH_OPTIONS.map((m) => (
+        <div className="insights-toolbar">
+          <div className="insights-periods" role="group" aria-label="Period">
+            {PERIOD_OPTIONS.map((option) => (
               <button
-                key={m}
+                key={option.key}
                 type="button"
-                onClick={() => setMonths(m)}
-                className={`rounded-md px-3 py-1.5 text-sm ${months === m ? 'bg-primary-600 text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
-                aria-pressed={months === m}
+                onClick={() => setPeriod(option.key)}
+                className={`rounded-md px-3 py-1.5 text-sm ${period === option.key ? 'bg-primary-600 text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
+                aria-pressed={period === option.key}
               >
-                {m} mo
+                {option.label}
               </button>
             ))}
           </div>
@@ -222,7 +208,7 @@ function InsightsPage() {
       )}
 
       {/* Briefing */}
-      <Card className="p-5">
+      <Card className="insights-briefing">
         {briefingLoading ? (
           <div className="space-y-3"><Skeleton className="h-6 w-2/3" /><Skeleton className="h-4 w-full" /><Skeleton className="h-4 w-5/6" /></div>
         ) : briefing ? (
@@ -233,7 +219,7 @@ function InsightsPage() {
                 {briefing.source === 'ai' ? 'AI briefing' : 'Rule-based briefing'}
               </Badge>
             </div>
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="insights-briefing-columns">
               <div>
                 <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--text-faint)]"><Info className="h-3.5 w-3.5" /> Highlights</p>
                 <ul className="list-disc space-y-1 pl-5 text-sm text-[var(--text-muted)]">
@@ -259,21 +245,30 @@ function InsightsPage() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <StatCard label="Requests" value={data.summary.total_demand} hint={`Last ${data.window.months} full months`} />
-            <StatCard label="Completed loans" value={data.summary.total_loans} hint={`${data.summary.turned_away} turned away`} />
+          <div className="insights-summary" aria-label="Analytics overview">
+            <StatCard label="Requests" value={data.summary.total_demand} hint={data.window.days ? `Last ${data.window.label}` : `Last ${data.window.months} full months`} />
+            <StatCard label="Loans fulfilled" value={data.summary.total_loans} hint={`${data.summary.turned_away} turned away`} />
             <StatCard
-              label={`Forecast, ${data.window.forecast_label}`}
-              value={data.summary.next_month_forecast}
-              hint={`Trend: ${data.summary.trend}`}
+              label={data.window.forecast_available ? `Forecast, ${data.window.forecast_label}` : 'Forecast'}
+              value={data.predictions?.available ? data.predictions.months[0].requests : '--'}
+              hint={data.predictions?.available ? `${data.predictions.confidence} confidence` : 'Needs at least 3 full months of history'}
             />
             <StatCard label="Titles needing copies" value={data.summary.books_needing_copies} hint={`${data.summary.books_in_demand} titles requested`} />
           </div>
 
-          <Card className="p-5">
-            <h3 className="mb-4 font-semibold text-[var(--text)]">Monthly activity</h3>
-            <MonthlyChart monthly={data.monthly} />
+          <Card className="insights-activity">
+            <h3 className="mb-4 font-semibold text-[var(--text)]">{data.activity ? 'Recent activity by week' : 'Monthly activity'}</h3>
+            {data.activity ? <RecentActivityChart buckets={data.activity.buckets} /> : <MonthlyChart monthly={data.monthly} />}
           </Card>
+
+          <PredictionsPanel predictions={data.predictions} monthly={data.monthly} />
+          {!data.window.days && data.predictions?.available && (
+            <CopyPlanner
+              key={`${data.window.from}-${data.window.to}`}
+              capacity={data.method.capacity_values}
+              books={Array.from(new Map([...data.copy_recommendations, ...data.top_books].map((book) => [book.book_id, book])).values())}
+            />
+          )}
 
           <Card className="p-5">
             <div className="mb-4 flex items-center gap-2">
@@ -281,7 +276,7 @@ function InsightsPage() {
               <h3 className="font-semibold text-[var(--text)]">Copy recommendations</h3>
             </div>
             {data.copy_recommendations.length === 0 ? (
-              <p className="text-sm text-[var(--text-muted)]">Current copies cover the forecast. No purchase needed right now.</p>
+              <p className="text-sm text-[var(--text-muted)]">No additional copies suggested from the recorded activity and current reservation queues.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[720px] text-sm text-[var(--text-muted)]">
@@ -312,7 +307,7 @@ function InsightsPage() {
                 <h3 className="font-semibold text-[var(--text)]">Most borrowed books</h3>
               </div>
               {data.top_books.length === 0 ? (
-                <p className="text-sm text-[var(--text-muted)]">No completed loans in this period.</p>
+                <p className="text-sm text-[var(--text-muted)]">No fulfilled loans in this period.</p>
               ) : (
                 <ol className="space-y-3">
                   {data.top_books.map((book, i) => (

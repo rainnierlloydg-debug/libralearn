@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { Heart, EyeOff, Bookmark, Sparkles, BookOpen, Calendar, MapPin, ExternalLink } from 'lucide-react';
-import BookCard from './BookCard';
+
 import Badge from '../ui/Badge';
 import Button from '../ui/Button';
-import { formatDate } from '../../utils/helpers';
-import { useAuth } from '../../contexts/AuthContext';
+
+import { useAuth } from '../../contexts/useAuth';
 import api from '../../utils/api';
-import { useToast } from '../../contexts/ToastContext';
+import { useToast } from '../../contexts/useToast';
 
 function RecommendationCard({
   book,
@@ -14,9 +15,11 @@ function RecommendationCard({
   onLike,
   onNotInterested,
   onSave,
+  onBorrow,
+  onReserve,
   onViewDetails
 }) {
-  const { user, isStudent } = useAuth();
+  const { user, isStudent: _isStudent } = useAuth();
   const { success, error } = useToast();
   const [isSaving, setIsSaving] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
@@ -26,37 +29,45 @@ function RecommendationCard({
   const [feedback, setFeedback] = useState(null); // 'like' | 'not_interested' | null
   const [showFeedback, setShowFeedback] = useState(false);
 
-  useEffect(() => {
-    checkFeedback();
-  }, [book.id]);
-
-  const checkFeedback = async () => {
+  const checkFeedback = useCallback(async () => {
     if (!user) return;
     try {
       const response = await api.get(`/recommendations/${book.id}/feedback`);
       if (response.data.success && response.data.data) {
         setFeedback(response.data.data.feedback);
       }
-    } catch (err) {
+    } catch {
       // Ignore
     }
-  };
+  }, [book.id, user]);
 
-  const checkSaved = async () => {
+  const checkSaved = useCallback(async () => {
     if (!user) return;
     try {
       const response = await api.get(`/books/${book.id}`);
       if (response.data.success) {
         setIsSaved(response.data.data.is_saved || false);
       }
-    } catch (err) {
+    } catch {
       // Ignore
     }
-  };
+  }, [book.id, user]);
 
   useEffect(() => {
-    checkSaved();
-  }, [book.id, user]);
+    // Defer network setup and cancel it if this view changes before it starts.
+    const timer = setTimeout(() => {
+      checkFeedback();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [checkFeedback]);
+
+  useEffect(() => {
+    // Defer network setup and cancel it if this view changes before it starts.
+    const timer = setTimeout(() => {
+      checkSaved();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [checkSaved]);
 
   const handleSave = async () => {
     if (!user) return;
@@ -72,7 +83,7 @@ function RecommendationCard({
         success('Book saved!');
       }
       onSave?.(!isSaved);
-    } catch (err) {
+    } catch {
       error('Failed to save book');
     } finally {
       setIsSaving(false);
@@ -122,7 +133,7 @@ function RecommendationCard({
       }
       // Hide feedback after 3 seconds
       setTimeout(() => setShowFeedback(false), 3000);
-    } catch (err) {
+    } catch {
       error('Failed to submit feedback');
     }
   };
@@ -144,7 +155,13 @@ function RecommendationCard({
   };
 
   return (
-    <article className="card card-hover relative overflow-hidden">
+    <article className="recommendation-card card card-hover student-book-card relative overflow-hidden">
+      <Link
+        to={`/books/${book.id}`}
+        className="book-card-link"
+        aria-label={`View full details of ${book.title}`}
+        onClick={onViewDetails ? (event) => { event.preventDefault(); onViewDetails(book); } : undefined}
+      />
       <div className="relative h-44 overflow-hidden bg-[var(--surface-2)] sm:h-48">
         {getCoverUrl() && !coverFailed ? (
           <img
@@ -195,9 +212,10 @@ function RecommendationCard({
           </div>
         )}
       </div>
-      <div className="p-4 space-y-3">
+      <div className="book-card-body p-4 space-y-3">
         <h3 className="font-semibold text-[var(--text)] line-clamp-2">{book.title}</h3>
         <p className="text-sm text-[var(--text-muted)] line-clamp-1">{book.author}</p>
+        <Link to={`/books/${book.id}`} className="book-details-button btn btn-secondary btn-sm self-start" onClick={onViewDetails ? (event) => { event.preventDefault(); onViewDetails(book); } : undefined}>View details</Link>
 
         <div className="flex flex-wrap gap-1.5">
           {book.genre && <Badge variant="primary" size="sm">{book.genre}</Badge>}
@@ -205,10 +223,10 @@ function RecommendationCard({
         </div>
 
         {relevanceReason && (
-          <div className="flex items-start gap-2 p-2 bg-primary-50 dark:bg-primary-900/20 rounded-lg">
-            <Sparkles className="w-4 h-4 text-primary-600 dark:text-primary-400 flex-shrink-0 mt-0.5" />
-            <p className="text-sm text-primary-800 dark:text-primary-200">
-              <span className="font-medium">Why this book?</span> {relevanceReason}
+          <div className="recommendation-reason">
+            <Sparkles className="w-4 h-4 flex-shrink-0 mt-0.5" aria-hidden="true" />
+            <p className="text-sm">
+              <span className="block font-semibold mb-1">Why this book?</span>{relevanceReason}
             </p>
           </div>
         )}
@@ -221,10 +239,11 @@ function RecommendationCard({
           </div>
         )}
 
-        <div className="flex gap-2 pt-2 border-t-[var(--border)]">
+        <div className="recommendation-feedback book-card-actions flex flex-wrap gap-2 pt-3 border-t border-[var(--border)]">
           <Button
             size="sm"
-            variant={feedback === 'like' ? 'success' : 'ghost'}
+            variant="secondary"
+            aria-pressed={feedback === 'like'}
             onClick={() => !feedback && handleFeedback('like')}
             disabled={!!feedback || isBorrowing}
             leftIcon={<Heart className={`w-4 h-4 ${feedback === 'like' ? 'fill-current text-green-500' : ''}`} />}
@@ -235,18 +254,19 @@ function RecommendationCard({
           </Button>
           <Button
             size="sm"
-            variant={feedback === 'not_interested' ? 'warning' : 'ghost'}
+            variant="secondary"
+            aria-pressed={feedback === 'not_interested'}
             onClick={() => !feedback && handleFeedback('not_interested')}
             disabled={!!feedback}
             leftIcon={<EyeOff className={`w-4 h-4 ${feedback === 'not_interested' ? 'text-yellow-500' : ''}`} />}
             className="flex-1"
             aria-label={feedback === 'not_interested' ? 'Already marked not interested' : 'Not interested'}
           >
-            {feedback === 'not_interested' ? 'Not Interested' : 'Not Interested'}
+            Not Interested
           </Button>
           <Button
             size="sm"
-            variant={isSaved ? 'danger' : 'ghost'}
+            variant={isSaved ? 'danger' : 'secondary'}
             onClick={handleSave}
             disabled={isSaving}
             leftIcon={<Bookmark className={`w-4 h-4 ${isSaved ? 'fill-current' : ''}`} />}
@@ -256,7 +276,7 @@ function RecommendationCard({
           </Button>
         </div>
 
-        <div className="flex gap-2">
+        <div className="book-card-actions flex flex-wrap gap-2">
           {book.status === 'available' && book.source === 'gsa' && (
             <>
               <Button
@@ -269,18 +289,9 @@ function RecommendationCard({
               >
                 {isBorrowing ? 'Requesting...' : 'Borrow'}
               </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={handleReserve}
-                disabled={isReserving}
-                leftIcon={<Calendar className="w-4 h-4" />}
-              >
-                Reserve
-              </Button>
             </>
           )}
-          {book.status !== 'available' && book.source === 'gsa' && (
+          {['borrowed', 'reserved', 'overdue'].includes(book.status) && book.source === 'gsa' && (
             <Button
               size="sm"
               variant="secondary"
@@ -293,15 +304,7 @@ function RecommendationCard({
             </Button>
           )}
           {book.source === 'online' && (
-            <Button
-              size="sm"
-              variant="accent"
-              className="flex-1"
-              onClick={onViewDetails}
-              leftIcon={<ExternalLink className="w-4 h-4" />}
-            >
-              View Online
-            </Button>
+            <Link to={`/books/${book.id}`} className="btn btn-accent flex-1">View Details</Link>
           )}
         </div>
       </div>

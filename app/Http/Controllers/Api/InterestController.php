@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Interest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 class InterestController extends Controller
 {
@@ -43,7 +44,10 @@ class InterestController extends Controller
             ], 422);
         }
 
-        $interest = Interest::create($request->all());
+        $data = $request->all();
+        $data['slug'] = Str::slug($data['name'] . '-' . $data['type']);
+
+        $interest = Interest::create($data);
 
         return response()->json([
             'success' => true,
@@ -72,7 +76,14 @@ class InterestController extends Controller
             ], 422);
         }
 
-        $interest->update($request->all());
+        $data = $request->all();
+        if (isset($data['name']) || isset($data['type'])) {
+            $name = $data['name'] ?? $interest->name;
+            $type = $data['type'] ?? $interest->type;
+            $data['slug'] = Str::slug($name . '-' . $type);
+        }
+
+        $interest->update($data);
 
         return response()->json([
             'success' => true,

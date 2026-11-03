@@ -2,7 +2,7 @@
 
 namespace App\Services\Ai;
 
-use Illuminate\Support\Facades\Http;
+use App\Services\Ai\GeminiClient;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -16,7 +16,7 @@ class LibraryInsightsNarrator
     public function narrate(array $analysis): array
     {
         $facts = $this->facts($analysis);
-        $apiKey = config('services.openai.api_key');
+        $apiKey = config('services.gemini.api_key');
 
         if ($apiKey) {
             $ai = $this->askModel($apiKey, $facts);
@@ -67,17 +67,17 @@ class LibraryInsightsNarrator
         ]);
 
         try {
-            $response = Http::withToken($apiKey)
-                ->acceptJson()
-                ->timeout(30)
-                ->post(config('services.openai.api_url'), [
-                    'model' => config('services.openai.model', 'gpt-4o-mini'),
-                    'temperature' => 0.2,
-                    'max_tokens' => 500,
-                    'response_format' => ['type' => 'json_object'],
-                    'messages' => [
-                        ['role' => 'system', 'content' => $system],
-                        ['role' => 'user', 'content' => json_encode($facts, JSON_UNESCAPED_UNICODE)],
+            $response = app(GeminiClient::class)->generate([
+                    'system_instruction' => [
+                        'parts' => [['text' => $system]]
+                    ],
+                    'contents' => [
+                        ['role' => 'user', 'parts' => [['text' => json_encode($facts, JSON_UNESCAPED_UNICODE)]]]
+                    ],
+                    'generationConfig' => [
+                        'temperature' => 0.2,
+                        'maxOutputTokens' => 500,
+                        'responseMimeType' => 'application/json',
                     ],
                 ]);
 
@@ -87,7 +87,8 @@ class LibraryInsightsNarrator
                 return null;
             }
 
-            $parsed = json_decode((string) data_get($response->json(), 'choices.0.message.content'), true);
+            $text = app(GeminiClient::class)->text($response);
+            $parsed = json_decode($text, true);
             if (!is_array($parsed) || empty($parsed['headline'])) {
                 return null;
             }
@@ -98,7 +99,7 @@ class LibraryInsightsNarrator
                 'actions' => array_values(array_filter(array_map('strval', (array) ($parsed['actions'] ?? [])))),
             ];
         } catch (\Throwable $e) {
-            Log::warning('Insights narration error.', ['message' => $e->getMessage()]);
+            Log::warning('Insights narration error.', ['message' => app(GeminiClient::class)->redact($e->getMessage())]);
 
             return null;
         }
@@ -111,20 +112,33 @@ class LibraryInsightsNarrator
         $actions = [];
 
         if ($s['total_demand'] === 0) {
+            $forecastAvailable = $a['window']['forecast_available'] ?? true;
+
             return [
                 'headline' => 'No borrowing activity recorded in this period yet.',
-                'highlights' => ['Forecasts need at least two months of borrow or reservation records.'],
-                'actions' => ['Keep recording borrow requests and reservations, then check this page again next month.'],
+                'highlights' => [$forecastAvailable
+                    ? 'Forecasts need at least three full months of borrow or reservation records.'
+                    : 'No requests or reservations were recorded in the selected period.'],
+                'actions' => [$forecastAvailable
+                    ? 'Keep recording borrow requests and reservations, then check this page again after three full months.'
+                    : 'Choose a longer period or keep recording borrow requests and reservations.'],
             ];
         }
 
+        $period = $a['window']['days']
+            ? 'the last ' . $a['window']['label']
+            : 'the last ' . $a['window']['months'] . ' full months';
         $highlights[] = sprintf(
-            '%d requests and %d completed loans over the last %d months.',
+            '%d requests and %d completed loans over %s.',
             $s['total_demand'],
             $s['total_loans'],
-            $a['window']['months']
+            $period
         );
-        $highlights[] = sprintf('Demand trend: %s. Forecast for %s: about %s requests.', $s['trend'], $a['window']['forecast_label'], $s['next_month_forecast']);
+        if ($a['window']['forecast_available'] ?? true) {
+            $highlights[] = sprintf('Demand trend: %s. Forecast for %s: about %s requests.', $s['trend'], $a['window']['forecast_label'], $s['next_month_forecast']);
+        } else {
+            $highlights[] = 'A forecast needs at least three full months of data.';
+        }
 
         if ($top = $a['top_books'][0] ?? null) {
             $highlights[] = sprintf('Most borrowed: %s with %d loans.', $top['title'], $top['window_loans']);

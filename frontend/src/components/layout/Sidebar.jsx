@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Home, Compass, BookOpen, Bookmark, History, MapPin, Bell, User, LayoutDashboard, Book, Sparkles, Users, Clock, BookmarkCheck, RotateCcw, BarChart, BrainCircuit, Settings, ChevronRight, ChevronLeft } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import { Home, Compass, BookOpen, Bookmark, MapPin, Bell, User, LayoutDashboard, Book, Sparkles, Users, Clock, BookmarkCheck, RotateCcw, BarChart, BrainCircuit, Settings, ChevronRight, ChevronLeft } from 'lucide-react';
+import { useAuth } from '../../contexts/useAuth';
 
 function StudentSidebar({ collapsed = false, mobileOpen = false, onClose, onToggle }) {
   const location = useLocation();
@@ -8,6 +8,7 @@ function StudentSidebar({ collapsed = false, mobileOpen = false, onClose, onTogg
 
   const navItems = [
     { path: '/dashboard', label: 'Dashboard', icon: Home },
+    { path: '/search', label: 'All Books', icon: Book },
     { path: '/recommendations', label: 'Recommendations', icon: Compass },
     { path: '/my-books', label: 'My Books', icon: BookOpen },
     { path: '/saved-books', label: 'Saved Books', icon: Bookmark },
@@ -82,6 +83,7 @@ function LibrarianSidebar({ collapsed = false, mobileOpen = false, onClose, onTo
       title: 'Overview',
       items: [
         { path: '/librarian/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+        { path: '/librarian/notifications', label: 'Notifications', icon: Bell },
       ],
     },
     {
@@ -109,7 +111,7 @@ function LibrarianSidebar({ collapsed = false, mobileOpen = false, onClose, onTo
     {
       title: 'Insights',
       items: [
-        { path: '/librarian/insights', label: 'AI Insights', icon: BrainCircuit },
+        { path: '/librarian/insights', label: 'Analytics & Predictions', icon: BrainCircuit },
         { path: '/librarian/reports', label: 'Reports', icon: BarChart },
       ],
     },

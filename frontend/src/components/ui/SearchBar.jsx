@@ -1,8 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Search, X } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
 
-function SearchBar({ 
+function SearchBar({
   placeholder = 'Search by title, author, subject, or ISBN...',
   onSearch,
   value: controlledValue,
@@ -10,9 +9,9 @@ function SearchBar({
   showSuggestions = true,
   className = '',
 }) {
-  const { user } = useAuth();
+
   const [query, setQuery] = useState('');
-  const [suggestions, setSuggestions] = useState([]);
+  const [suggestions, _setSuggestions] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const inputRef = useRef(null);

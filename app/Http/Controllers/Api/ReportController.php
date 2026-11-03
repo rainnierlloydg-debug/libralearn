@@ -15,6 +15,49 @@ use Carbon\Carbon;
 
 class ReportController extends Controller
 {
+    public function export(Request $request, string $type)
+    {
+        $this->authorize('librarian');
+        $validated = $request->validate([
+            'date_from' => 'sometimes|date',
+            'date_to' => 'sometimes|date|after_or_equal:date_from',
+        ]);
+        $from = Carbon::parse($validated['date_from'] ?? now()->subMonth())->startOfDay();
+        $to = Carbon::parse($validated['date_to'] ?? now())->endOfDay();
+
+        [$query, $headers, $row] = match ($type) {
+            'books' => [Book::where('source', 'gsa'),
+                ['ID', 'Title', 'Author', 'ISBN', 'Genre', 'Subject', 'Status'],
+                fn ($book) => [$book->id, $book->title, $book->author, $book->isbn, $book->genre, $book->subject, $book->status]],
+            'borrowing' => [BorrowTransaction::with(['student', 'book'])->whereBetween('borrow_date', [$from, $to]),
+                ['ID', 'Student', 'Book', 'Borrowed', 'Due', 'Returned', 'Status'],
+                fn ($loan) => [$loan->id, $loan->student?->name, $loan->book?->title, $loan->borrow_date, $loan->due_date, $loan->return_date, $loan->status]],
+            'student-activity' => [User::where('role', 'student')->withCount([
+                'borrowedBooks' => fn ($q) => $q->whereBetween('borrow_date', [$from, $to]),
+                'reservations' => fn ($q) => $q->whereBetween('reservation_date', [$from, $to]),
+                'savedBooks' => fn ($q) => $q->whereBetween('created_at', [$from, $to]),
+            ]), ['ID', 'Name', 'School ID', 'Loans', 'Reservations', 'Saved Books'],
+                fn ($user) => [$user->id, $user->name, $user->school_id, $user->borrowed_books_count, $user->reservations_count, $user->saved_books_count]],
+            'ai-cataloging' => [AiCatalogJob::whereBetween('created_at', [$from, $to]),
+                ['ID', 'Title', 'Status', 'Confidence', 'Created'],
+                fn ($job) => [$job->id, $job->final_metadata['title'] ?? '', $job->status, $job->confidence, $job->created_at]],
+        };
+
+        return response()->streamDownload(function () use ($query, $headers, $row) {
+            $stream = fopen('php://output', 'w');
+            fputcsv($stream, $headers, ',', '"', '');
+            foreach ($query->lazyById() as $record) {
+                $values = array_map(function ($value) {
+                    $text = (string) ($value ?? '');
+                    // Spreadsheet applications must treat user text as text, never formulas.
+                    return preg_match('/^[\s]*[=+@-]/u', $text) ? "'" . $text : $text;
+                }, $row($record));
+                fputcsv($stream, $values, ',', '"', '');
+            }
+            fclose($stream);
+        }, "{$type}-report.csv", ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
+
     public function bookReport(Request $request)
     {
         $this->authorize('librarian');
@@ -76,8 +119,7 @@ class ReportController extends Controller
     {
         $this->authorize('librarian');
 
-        $dateFrom = $request->get('date_from', Carbon::now()->subMonth()->toDateString());
-        $dateTo = $request->get('date_to', Carbon::now()->toDateString());
+        [$dateFrom, $dateTo] = $this->reportDates($request);
 
         $query = BorrowTransaction::with(['student', 'book'])
             ->whereBetween('borrow_date', [$dateFrom, $dateTo]);
@@ -132,8 +174,7 @@ class ReportController extends Controller
     {
         $this->authorize('librarian');
 
-        $dateFrom = $request->get('date_from', Carbon::now()->subMonth()->toDateString());
-        $dateTo = $request->get('date_to', Carbon::now()->toDateString());
+        [$dateFrom, $dateTo] = $this->reportDates($request);
 
         // Active students (those with activity in period)
         $activeStudents = User::where('role', 'student')
@@ -187,8 +228,7 @@ class ReportController extends Controller
     {
         $this->authorize('librarian');
 
-        $dateFrom = $request->get('date_from', Carbon::now()->subMonth()->toDateString());
-        $dateTo = $request->get('date_to', Carbon::now()->toDateString());
+        [$dateFrom, $dateTo] = $this->reportDates($request);
 
         $query = AiCatalogJob::whereBetween('created_at', [$dateFrom, $dateTo]);
 
@@ -226,4 +266,17 @@ class ReportController extends Controller
             ],
         ]);
     }
+    private function reportDates(Request $request): array
+    {
+        $data = $request->validate([
+            'date_from' => 'sometimes|date',
+            'date_to' => 'sometimes|date|after_or_equal:date_from',
+        ]);
+
+        return [
+            Carbon::parse($data['date_from'] ?? now()->subMonth())->startOfDay(),
+            Carbon::parse($data['date_to'] ?? now())->endOfDay(),
+        ];
+    }
+
 }

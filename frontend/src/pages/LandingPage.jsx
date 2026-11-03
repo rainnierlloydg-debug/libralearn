@@ -1,276 +1,124 @@
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import {
-  ArrowRight,
-  BookOpen,
-  BrainCircuit,
-  Clock3,
-  Compass,
-  MapPin,
-  Search,
-  Sparkles,
-  Star,
-  TrendingUp,
-  Users,
-} from 'lucide-react';
+import { BookOpen, BrainCircuit, Clock3, Compass, MapPin, Search, Sparkles, Star, Check, Menu, X } from 'lucide-react';
+import api from '../utils/api';
+import './landing.css';
 
 function LandingPage() {
+  const [stats, setStats] = useState({
+    total_books: '—',
+    active_students: '—',
+    total_borrowed: '—',
+    genres_available: '—',
+  });
+  const [featuredBook, setFeaturedBook] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [currentYear] = useState(() => new Date().getFullYear());
+
+  useEffect(() => {
+    // Defer network setup and cancel it if this view changes before it starts.
+    const timer = setTimeout(() => {
+      const fetchStats = async () => {
+        try {
+          const response = await api.get('/landing/stats');
+          if (response.data.success) {
+            const data = response.data.data;
+            setStats({
+              total_books: data.total_books >= 1000 ? `${(data.total_books / 1000).toFixed(1)}k+` : data.total_books,
+              active_students: data.active_students,
+              total_borrowed: data.total_borrowed,
+              genres_available: data.genres_available,
+            });
+          }
+        } catch {
+          // Leave counts unavailable rather than showing sample figures.
+        } finally {
+          setLoading(false);
+        }
+      };
+      fetchStats();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    // Defer network setup and cancel it if this view changes before it starts.
+    const timer = setTimeout(() => {
+      const fetchFeaturedBook = async () => {
+        try {
+          const response = await api.get('/landing/featured-book');
+          if (response.data.success && response.data.data) {
+            setFeaturedBook(response.data.data);
+          }
+        } catch {
+          // Keep null on error
+        }
+      };
+      fetchFeaturedBook();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+
   const features = [
-    {
-      icon: BrainCircuit,
-      title: 'Smart Cataloging',
-      description: 'AI-powered OCR and metadata enrichment turn cover photos into clean, searchable book records in seconds.',
-      accent: 'from-violet-500 to-indigo-600',
-    },
-    {
-      icon: Search,
-      title: 'Instant Search',
-      description: 'Find titles, authors, genres, ISBNs, and subjects with filters for shelf location and availability.',
-      accent: 'from-cyan-500 to-sky-600',
-    },
-    {
-      icon: Star,
-      title: 'Personalized Picks',
-      description: 'Students get book suggestions built from reading patterns, interests, and feedback for better discovery.',
-      accent: 'from-amber-400 to-orange-500',
-    },
-    {
-      icon: Clock3,
-      title: 'Borrow & Reserve',
-      description: 'Track requests, due dates, due soon notices, and approvals from one streamlined library workflow.',
-      accent: 'from-emerald-500 to-teal-600',
-    },
-    {
-      icon: Compass,
-      title: 'Online Discovery',
-      description: 'Search beyond the local shelves and pull in trusted external sources for expanded book research.',
-      accent: 'from-fuchsia-500 to-pink-600',
-    },
-    {
-      icon: MapPin,
-      title: 'Library Map',
-      description: 'See shelf sections and location markers quickly so students can go directly to the right book.',
-      accent: 'from-rose-500 to-red-500',
-    },
+    { icon: Search, title: 'Less searching. More finding.', description: 'Find a title, follow an author, or explore a subject. Check availability before you head to the shelves.', label: 'DISCOVER', to: '/search', action: 'Explore the catalog' },
+    { icon: Star, title: 'A shelf that feels like you.', description: 'Turn your interests into your next great read with recommendations shaped around your curiosity.', label: 'PERSONALIZE', to: '/recommendations', action: 'Find your next read' },
+    { icon: Clock3, title: 'Your reading, all together.', description: 'Keep track of borrowing requests, reservations, and due dates in one place.', label: 'STAY ORGANIZED', to: '/my-books', action: 'Open my books' },
+    { icon: Compass, title: 'Go beyond the bookshelf.', description: 'Explore books from Open Library and Google Books, alongside your school collection.', label: 'EXPLORE', to: '/online-search', action: 'Search online' },
   ];
-
-  const stats = [
-    { value: '10k+', label: 'Books indexed' },
-    { value: '94%', label: 'Faster discovery' },
-    { value: '24/7', label: 'Smart access' },
+  const displayStats = [
+    { value: stats.total_books, label: 'Books to discover' },
+    { value: stats.active_students, label: 'Active students' },
+    { value: stats.total_borrowed, label: 'Library loans' },
+    { value: stats.genres_available, label: 'Genres to explore' },
   ];
-
-  const steps = [
-    { number: 1, title: 'Browse', description: 'Search the catalog, filter by section, and preview availability in seconds.' },
-    { number: 2, title: 'Choose', description: 'Compare recommendations, shelf location, and book details before borrowing.' },
-    { number: 3, title: 'Enjoy', description: 'Borrow, reserve, and keep learning with a smoother library experience.' },
-  ];
-
+  const brand = <><span className="ll-brand-icon"><BookOpen size={21} aria-hidden="true" /></span>LibraLearn<span className="ll-brand-dot">.</span></>;
   return (
-    <div className="landing-shell">
-      <header className="topbar">
-        <div className="topbar-inner">
-          <Link to="/" className="brand-wrap">
-            <span className="brand-mark">L</span>
-            <span>LibraLearn</span>
-          </Link>
-
-          <nav className="nav-links">
-            <Link to="/search">Search</Link>
-            <Link to="/recommendations">Recommendations</Link>
-            <Link to="/library-map">Map</Link>
-            <Link to="/login">Login</Link>
-          </nav>
-
-          <Link to="/register" className="btn btn-primary btn-sm hidden-mobile">
-            Join now
-          </Link>
+    <div className="ll-home" data-theme="light">
+      <header className="ll-header">
+        <div className="ll-container ll-nav">
+          <Link to="/" className="ll-brand" aria-label="LibraLearn home">{brand}</Link>
+          <nav className="ll-desktop-nav" aria-label="Main navigation"><a href="#discover">Discover</a><a href="#how-it-works">How it works</a><Link to="/library-map">Library map</Link></nav>
+          <div className="ll-nav-actions"><Link to="/login" className="ll-sign-in">Sign in</Link><Link to="/register" className="ll-button ll-button-small">Get started</Link><button type="button" className="ll-menu" aria-label={menuOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={menuOpen} aria-controls="ll-mobile-nav" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X size={22} /> : <Menu size={22} />}</button></div>
         </div>
+        {menuOpen && <nav id="ll-mobile-nav" className="ll-mobile-nav" aria-label="Mobile navigation">{[['/search', 'Browse the library'], ['/recommendations', 'Recommendations'], ['/library-map', 'Library map'], ['/login', 'Student sign in'], ['/librarian/login', 'Librarian sign in']].map(([to, label]) => <Link key={to} to={to} onClick={() => setMenuOpen(false)}>{label}</Link>)}</nav>}
       </header>
-
       <main>
-        <section className="hero-section">
-          <div className="hero-bg hero-glow-1" />
-          <div className="hero-bg hero-glow-2" />
-
-          <div className="hero-content">
-            <div className="hero-copy">
-              <span className="eyebrow">
-                <Sparkles size={16} />
-                Good Shepherded Academy Library
-              </span>
-
-              <h1>Discover smarter reading for every student.</h1>
-              <p>
-                Explore a modern digital library experience with AI-assisted cataloging, instant search,
-                and personalized recommendations built for learning.
-              </p>
-
-              <div className="cta-row">
-                <Link to="/search" className="btn btn-primary btn-lg">
-                  <Search size={18} />
-                  Search Library
-                </Link>
-                <Link to="/login" className="btn btn-secondary btn-lg">
-                  Librarian Login
-                </Link>
-              </div>
-
-              <div className="mini-stats">
-                {stats.map((item) => (
-                  <div key={item.label} className="mini-stat">
-                    <strong>{item.value}</strong>
-                    <span>{item.label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="hero-panel glass-card">
-              <div className="panel-header">
-                <span className="dot dot-purple" />
-                <span className="dot dot-sky" />
-                <span className="dot dot-green" />
-              </div>
-
-              <div className="book-card-main">
-                <div className="book-visual">
-                  <BookOpen size={32} />
-                </div>
-                <div>
-                  <p className="panel-kicker">Today’s focus</p>
-                  <h3>AI reads the shelf for you.</h3>
-                </div>
-              </div>
-
-              <div className="search-chip-row">
-                <span>History</span>
-                <span>Science</span>
-                <span>Fiction</span>
-              </div>
-
-              <div className="insight-grid">
-                <div className="insight-box">
-                  <TrendingUp size={18} />
-                  <div>
-                    <strong>1,284</strong>
-                    <span>Book matches</span>
-                  </div>
-                </div>
-                <div className="insight-box">
-                  <Users size={18} />
-                  <div>
-                    <strong>820</strong>
-                    <span>Active readers</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="recommendation-box">
-                <div className="recommendation-tag">Top match</div>
-                <h4>The Alchemist</h4>
-                <p>Recommended based on your reading interests and recent borrow history.</p>
-              </div>
-            </div>
+        <section className="ll-container ll-hero" aria-labelledby="ll-hero-title">
+          <div className="ll-hero-copy">
+            <span className="ll-eyebrow"><span className="ll-status-dot" />GOOD SHEPHERDED ACADEMY LIBRARY</span>
+            <h1 id="ll-hero-title">Big ideas.<br />New worlds.<br /><em>Your next chapter.</em></h1>
+            <p>A little curiosity can take you a long way. Find your next favorite book, follow your interests, and make discovery part of your day.</p>
+            <div className="ll-hero-actions"><Link to="/search" className="ll-button"><Search size={18} aria-hidden="true" />Explore the library</Link><Link to="/register" className="ll-button ll-button-outline">Create an account</Link></div>
+            <div className="ll-hero-note"><span><Check size={13} aria-hidden="true" /></span>Your school library, a little closer.</div>
+          </div>
+          <div className="ll-hero-art">
+            <div className="ll-art-heading"><span>THE CURIOSITY COLLECTION</span><Sparkles size={19} aria-hidden="true" /></div>
+            <div className="ll-orbit" aria-hidden="true" />
+            <div className="ll-art-caption" aria-hidden="true">A world of possibility,<br />one page at a time.</div>
+            <div className="ll-book ll-book-back" aria-hidden="true"><span>STAY CURIOUS</span><strong>Ideas<br />worth<br />exploring.</strong></div>
+            <div className="ll-book ll-book-front" aria-hidden="true"><span>THE LIBRALEARN EDITION</span><BookOpen size={30} /><strong>Between<br />the pages,<br /><em>anything<br />is possible.</em></strong><div className="ll-cover-sun" /><small>FOR EVERY CURIOUS MIND</small></div>
+            <span className="ll-floating-note"><Sparkles size={16} aria-hidden="true" />A new perspective awaits</span>
+            <div className="ll-art-footer"><span>READ. WONDER. REPEAT.</span><span>VOL. 01</span></div>
           </div>
         </section>
-
-        <section className="feature-section">
-          <div className="section-heading">
-            <span className="eyebrow muted">Why students use it</span>
-            <h2>Everything a modern library needs.</h2>
-          </div>
-
-          <div className="feature-grid">
-            {features.map((feature) => (
-              <article key={feature.title} className="feature-card glass-card card-hover">
-                <div className={`feature-icon bg-gradient ${feature.accent}`}>
-                  <feature.icon size={22} />
-                </div>
-                <h3>{feature.title}</h3>
-                <p>{feature.description}</p>
-              </article>
-            ))}
-          </div>
+        <section className="ll-container ll-stats" aria-label="Library statistics" aria-busy={loading}>{displayStats.map(item => <div key={item.label}><strong>{item.value}</strong><span>{item.label}</span></div>)}</section>
+        <section id="discover" className="ll-container ll-discover">
+          <div className="ll-section-heading"><div><span className="ll-eyebrow">A LIBRARY BUILT AROUND YOU</span><h2>More than books.<br /><em>A place to begin.</em></h2></div><p>From the first search to the last page, everything you need for a better reading journey.</p></div>
+          <div className="ll-feature-grid">{features.map(({ icon: Icon, ...feature }, index) => <article className="ll-feature" key={feature.title}><div className="ll-feature-top"><span className="ll-feature-icon"><Icon size={22} aria-hidden="true" /></span><span>0{index + 1} / {feature.label}</span></div><h3>{feature.title}</h3><p>{feature.description}</p><Link to={feature.to} className="ll-feature-link">{feature.action}</Link></article>)}</div>
         </section>
-
-        <section className="flow-section">
-          <div className="section-heading center">
-            <span className="eyebrow muted">How it works</span>
-            <h2>Simple steps, better learning.</h2>
-          </div>
-
-          <div className="step-grid">
-            {steps.map((step) => (
-              <div key={step.number} className="step-card glass-card">
-                <div className="step-badge">0{step.number}</div>
-                <h3>{step.title}</h3>
-                <p>{step.description}</p>
-              </div>
-            ))}
-          </div>
+        <section className="ll-container ll-spotlight" aria-labelledby="ll-spotlight-title">
+          <div className="ll-spotlight-art" aria-hidden="true"><span>OFF THE SHELF</span><div className="ll-featured-cover"><BookOpen size={30} /><strong>A good book.<br /><em>A new beginning.</em></strong><div className="ll-cover-line" /><small>DISCOVER SOMETHING DIFFERENT</small></div><span className="ll-spotlight-spark">✳</span></div>
+          <div className="ll-spotlight-copy"><span className="ll-eyebrow">{featuredBook ? 'FROM OUR COLLECTION' : 'MAKE ROOM FOR DISCOVERY'}</span><h2 id="ll-spotlight-title">{featuredBook ? featuredBook.title : 'Your next favorite is waiting.'}</h2>{featuredBook && <p className="ll-featured-author">by {featuredBook.author}</p>}<p>{featuredBook ? 'Every book opens a different door. Take a closer look at this title from your school library and see where it takes you.' : 'Start with a familiar subject or try something completely new. There is always another perspective waiting on the shelf.'}</p>{featuredBook?.genre && <span className="ll-genre">{featuredBook.genre}</span>}<Link to={featuredBook ? `/books/${featuredBook.id}` : '/search'} className="ll-button ll-button-outline">{featuredBook ? 'Explore this book' : 'Browse the collection'}</Link></div>
         </section>
-
-        <section className="cta-section">
-          <div className="cta-card">
-            <div>
-              <span className="eyebrow light">Ready to explore?</span>
-              <h2>Bring your library into the future.</h2>
-            </div>
-
-            <div className="cta-actions">
-              <Link to="/register" className="btn btn-light btn-lg">
-                Register as Student
-                <ArrowRight size={18} />
-              </Link>
-              <Link to="/login" className="btn btn-ghost-light btn-lg">
-                Login
-              </Link>
-            </div>
-          </div>
+        <section id="how-it-works" className="ll-container ll-how">
+          <div className="ll-section-heading"><div><span className="ll-eyebrow">FROM CURIOUS TO CAPTIVATED</span><h2>A good read is<br /><em>three steps away.</em></h2></div><Link to="/register" className="ll-button ll-button-outline">Start your reading journey</Link></div>
+          <ol className="ll-steps">{[['Find your spark', 'Browse the collection or let your interests lead you to something unexpected.'], ['Make it your next read', 'Check the details and availability, then send a borrowing request.'], ['Pick up. Dive in.', 'Follow your request in My Books. Once approved, collect your book from the library.']].map(([title, description], index) => <li key={title}><span>0{index + 1}</span><h3>{title}</h3><p>{description}</p></li>)}</ol>
         </section>
+        <section className="ll-container ll-library-tools"><div><BrainCircuit size={24} aria-hidden="true" /><div><h3>A little smarter behind the scenes.</h3><p>AI-assisted cataloging helps library staff turn book covers into searchable records.</p></div></div><Link to="/librarian/login" className="ll-button ll-button-outline">Librarian sign in</Link></section>
+        <section className="ll-container ll-invitation"><span className="ll-eyebrow">YOUR NEXT CHAPTER STARTS HERE</span><h2>Stay curious.<br /><em>Keep turning pages.</em></h2><p>Your library is full of possibilities. Make one of them yours.</p><div><Link to="/register" className="ll-button ll-button-lime">Join your library</Link><Link to="/search" className="ll-button ll-button-light-outline">Browse books</Link></div><BookOpen className="ll-invitation-art" size={260} strokeWidth={0.7} aria-hidden="true" /></section>
       </main>
-
-      <footer className="site-footer">
-        <div className="footer-grid">
-          <div>
-            <Link to="/" className="brand-wrap footer-brand">
-              <span className="brand-mark">L</span>
-              <span>LibraLearn</span>
-            </Link>
-            <p>Your smarter digital library companion for Good Shepherded Academy.</p>
-          </div>
-
-          <div>
-            <h4>Explore</h4>
-            <ul>
-              <li><Link to="/search">Search Library</Link></li>
-              <li><Link to="/recommendations">Recommendations</Link></li>
-              <li><Link to="/online-search">Online Search</Link></li>
-            </ul>
-          </div>
-
-          <div>
-            <h4>Library</h4>
-            <ul>
-              <li><Link to="/librarian/dashboard">Dashboard</Link></li>
-              <li><Link to="/librarian/books">Manage Books</Link></li>
-              <li><Link to="/librarian/reports">Reports</Link></li>
-            </ul>
-          </div>
-
-          <div>
-            <h4>Contact</h4>
-            <ul>
-              <li>Good Shepherded Academy</li>
-              <li>library@gsa.edu</li>
-            </ul>
-          </div>
-        </div>
-
-        <div className="footer-bottom">
-          <p>© 2025 LibraLearn. All rights reserved.</p>
-        </div>
-      </footer>
+      <footer className="ll-container ll-footer"><div className="ll-footer-top"><div><Link to="/" className="ll-brand">{brand}</Link><p>A little curiosity. A world of possibility.<br />Good Shepherded Academy Library.</p></div><nav aria-label="Explore the library"><h3>Explore</h3><Link to="/search">Book collection</Link><Link to="/recommendations">Recommended reads</Link><Link to="/online-search">Online discovery</Link></nav><nav aria-label="Library access"><h3>Your library</h3><Link to="/library-map"><MapPin size={13} aria-hidden="true" />Library map</Link><Link to="/login">Student sign in</Link><Link to="/librarian/login">Librarian sign in</Link></nav></div><div className="ll-footer-bottom"><span>© {currentYear} LibraLearn. All rights reserved.</span><span>Made for curious minds.</span></div></footer>
     </div>
   );
 }

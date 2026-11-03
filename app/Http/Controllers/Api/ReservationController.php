@@ -20,6 +20,20 @@ class ReservationController extends Controller
             $query->where('student_id', $request->user()->id);
         }
 
+        if ($request->filled('search')) {
+            $search = '%' . trim($request->string('search')->toString()) . '%';
+            $query->where(function ($matches) use ($search) {
+                $matches->whereHas('student', function ($student) use ($search) {
+                    $student->where(function ($identity) use ($search) {
+                        $identity->where('name', 'like', $search)
+                            ->orWhere('school_id', 'like', $search);
+                    });
+                })->orWhereHas('book', function ($book) use ($search) {
+                    $book->where('title', 'like', $search);
+                });
+            });
+        }
+
         if ($request->filled('status')) {
             $query->where('status', $request->status);
         }

@@ -29,8 +29,25 @@ class BorrowController extends Controller
         }
 
         // Filters
+        if ($request->filled('search')) {
+            $search = '%' . trim($request->string('search')->toString()) . '%';
+            $query->where(function ($matches) use ($search) {
+                $matches->whereHas('student', function ($student) use ($search) {
+                    $student->where(function ($identity) use ($search) {
+                        $identity->where('name', 'like', $search)
+                            ->orWhere('school_id', 'like', $search);
+                    });
+                })->orWhereHas('book', function ($book) use ($search) {
+                    $book->where(function ($details) use ($search) {
+                        $details->where('title', 'like', $search)
+                            ->orWhere('isbn', 'like', $search);
+                    });
+                });
+            });
+        }
+
         if ($request->filled('status')) {
-            $query->where('status', $request->status);
+            $query->whereIn('status', array_filter(array_map('trim', explode(',', $request->status))));
         }
 
         if ($request->filled('student_id') && $request->user()->isLibrarian()) {

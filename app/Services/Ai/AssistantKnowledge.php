@@ -54,7 +54,7 @@ class AssistantKnowledge
             'Reservations (/librarian/reservations): approve, mark ready for pickup, complete, or expire reservations.',
             'Returns (/librarian/returns): confirm physical returns after checking the book condition.',
             'Students (/librarian/students): approve new accounts, edit, activate or deactivate, view each student\'s loans and interests.',
-            'AI Insights (/librarian/insights): most used books by month, demand trend by genre and subject, forecast for the current month, and which titles need more copies with the reasons.',
+            'Analytics & Predictions (/librarian/insights): borrowing trends, three-month demand predictions, past forecast errors, and a copy planning simulator. Requires three complete months of recorded history for predictions.',
             'Reports (/librarian/reports): book, borrowing, student activity, and AI cataloging reports with date filters.',
             'Settings (/librarian/settings): library settings and theme.',
         ];

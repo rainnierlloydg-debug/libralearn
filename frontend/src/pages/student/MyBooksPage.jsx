@@ -1,16 +1,39 @@
-import { useState, useEffect } from 'react';
+import useNow from '../../utils/useNow';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { BookOpen, Clock, AlertCircle, Calendar, RotateCcw, Bookmark, X, Plus } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import { BookOpen, Clock, Calendar, RotateCcw, Bookmark, Plus, MapPin } from 'lucide-react';
 import api from '../../utils/api';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import { Skeleton } from '../../components/ui/Skeleton';
-import { formatDate, getRelativeTime } from '../../utils/helpers';
+import { formatDate } from '../../utils/helpers';
+import { useAuth } from '../../contexts/useAuth';
+import { createTabSnapshot, hasUnseenTabUpdates } from '../../utils/myBooksUpdates';
+
+function BookThumbnail({ book }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <div className="my-books-cover">
+      {book.cover_url && !failed ? (
+        <img src={book.cover_url} alt={`Cover of ${book.title}`} onError={() => setFailed(true)} loading="lazy" />
+      ) : (
+        <BookOpen className="w-7 h-7" aria-label={`No cover available for ${book.title}`} />
+      )}
+    </div>
+  );
+}
 
 function MyBooksPage() {
+  const now = useNow();
   const { user } = useAuth();
+  const userId = user?.id;
+  const activeTabRef = useRef('borrowed');
+  const snapshotsRef = useRef({});
+  const seenRef = useRef({});
+  const requestRef = useRef(0);
+  const [unreadTabs, setUnreadTabs] = useState({});
+
   const [activeTab, setActiveTab] = useState('borrowed');
   const [borrowedBooks, setBorrowedBooks] = useState([]);
   const [reservations, setReservations] = useState([]);
@@ -19,33 +42,79 @@ function MyBooksPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
 
-  useEffect(() => {
-    fetchData();
-  }, [activeTab]);
-
-  const fetchData = async () => {
-    setLoading(true);
+  const saveSeen = useCallback((tab, snapshot) => {
+    seenRef.current = { ...seenRef.current, [tab]: snapshot };
     try {
-      if (activeTab === 'borrowed' || activeTab === 'all') {
-        const [borrowedRes, pendingRes] = await Promise.all([
-          api.get('/borrow?status=borrowed'),
-          api.get('/borrow?status=pending,approved,return_requested'),
-        ]);
-        if (borrowedRes.data.success) setBorrowedBooks(borrowedRes.data.data.data);
-        if (pendingRes.data.success) setPendingRequests(pendingRes.data.data.data);
+      localStorage.setItem(`my-books-seen:${userId}`, JSON.stringify(seenRef.current));
+    } catch {
+      // Indicators still work for this visit when browser storage is unavailable.
+    }
+  }, [userId]);
+
+  const fetchData = useCallback(async ({ background = false, signal } = {}) => {
+    if (!userId) return;
+    const requestId = ++requestRef.current;
+    if (!background) setLoading(true);
+    const sections = [
+      ['borrowed', '/borrow?status=borrowed,overdue', setBorrowedBooks],
+      ['reservations', '/reservations', setReservations],
+      ['pending', '/borrow?status=pending,approved,return_requested', setPendingRequests],
+      ['history', '/borrow?status=returned,rejected,lost,damaged', setHistory],
+    ];
+    const responses = await Promise.allSettled(sections.map(([, url]) => api.get(url, { signal })));
+    if (signal?.aborted || requestId !== requestRef.current) return;
+    const updates = {};
+    responses.forEach((result, index) => {
+      const [tab, , setRecords] = sections[index];
+      if (result.status !== 'fulfilled' || !result.value.data.success) return;
+      const pageData = result.value.data.data;
+      if (!Array.isArray(pageData?.data)) return;
+      setRecords(pageData.data);
+      const snapshot = createTabSnapshot(pageData.data, pageData.total ?? pageData.data.length);
+      snapshotsRef.current[tab] = snapshot;
+      if (activeTabRef.current === tab && document.visibilityState === 'visible') {
+        saveSeen(tab, snapshot);
       }
-      if (activeTab === 'reservations' || activeTab === 'all') {
-        const resRes = await api.get('/reservations');
-        if (resRes.data.success) setReservations(resRes.data.data.data);
-      }
-      if (activeTab === 'history') {
-        const histRes = await api.get('/borrow?status=returned,rejected,lost,damaged');
-        if (histRes.data.success) setHistory(histRes.data.data.data);
-      }
-    } catch (err) {
-      console.error('Failed to fetch data:', err);
-    } finally {
-      setLoading(false);
+      updates[tab] = hasUnseenTabUpdates(snapshot, seenRef.current[tab]);
+    });
+    setUnreadTabs(current => ({ ...current, ...updates }));
+    setLoading(false);
+  }, [userId, saveSeen]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    snapshotsRef.current = {};
+    seenRef.current = {};
+    try {
+      const stored = JSON.parse(localStorage.getItem(`my-books-seen:${userId}`) || '{}');
+      if (stored && typeof stored === 'object' && !Array.isArray(stored)) seenRef.current = stored;
+    } catch {
+      // Treat invalid or unavailable storage as a first visit.
+    }
+    const timer = setTimeout(() => {
+      setUnreadTabs({});
+      fetchData({ signal: controller.signal });
+    }, 0);
+    const refresh = () => {
+      if (document.visibilityState === 'visible') fetchData({ background: true, signal: controller.signal });
+    };
+    const interval = setInterval(refresh, 60_000);
+    window.addEventListener('focus', refresh);
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+      window.removeEventListener('focus', refresh);
+      controller.abort();
+    };
+  }, [fetchData, userId]);
+
+  const visitTab = (tab) => {
+    activeTabRef.current = tab;
+    setActiveTab(tab);
+    const snapshot = snapshotsRef.current[tab];
+    if (snapshot) {
+      saveSeen(tab, snapshot);
+      setUnreadTabs(current => ({ ...current, [tab]: false }));
     }
   };
 
@@ -107,20 +176,26 @@ function MyBooksPage() {
   return (
     <div className="student-my-books space-y-6">
       {/* Header */}
-      <div>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
         <h1 className="text-2xl font-heading font-bold text-[var(--text)]">My Books</h1>
         <p className="text-[var(--text-muted)]">Track your borrowed books, reservations, and history</p>
+        </div>
+        <Link to="/search" className="btn btn-primary"><BookOpen className="w-4 h-4" aria-hidden="true" />Browse All Books</Link>
       </div>
 
       {/* Tabs */}
-      <div className="my-books-tabs" role="tablist">
-        <nav className="flex gap-1 overflow-x-auto" aria-label="My books sections">
+      <div className="my-books-tabs">
+        <nav className="flex gap-1 overflow-x-auto" role="tablist" aria-label="My books sections">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               role="tab"
+              id={`my-books-tab-${tab.id}`}
+              aria-controls="my-books-panel"
               aria-selected={activeTab === tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              aria-label={unreadTabs[tab.id] ? `${tab.label}, new updates` : tab.label}
+              onClick={() => visitTab(tab.id)}
               className={`my-books-tab flex items-center gap-2 px-4 py-3 rounded-t-lg font-medium text-sm transition-colors whitespace-nowrap ${
                 activeTab === tab.id
                   ? 'text-primary-600 border-b-2 border-primary-600'
@@ -129,22 +204,30 @@ function MyBooksPage() {
             >
               <tab.icon className="w-4 h-4" />
               {tab.label}
+              {unreadTabs[tab.id] && (
+                <span className="my-books-unread-light" aria-hidden="true" />
+              )}
             </button>
           ))}
         </nav>
       </div>
 
       {/* Tab content */}
+      <section id="my-books-panel" role="tabpanel" aria-labelledby={`my-books-tab-${activeTab}`} aria-busy={loading} className="space-y-4">
+      <div>
+        <h2 className="font-semibold text-[var(--text)]">{tabs.find(tab => tab.id === activeTab)?.label}</h2>
+        <p className="text-sm text-[var(--text-muted)] mt-1">{{ borrowed: 'Your current loans and upcoming return dates.', reservations: 'Track your reservations and pickup deadlines.', pending: 'Requests waiting for library approval or processing.', history: 'Review your previous loans and their status.' }[activeTab]}</p>
+      </div>
       {activeTab === 'borrowed' && (
         <div className="space-y-4">
           {loading ? (
             [...Array(3)].map((_, i) => <Skeleton key={i} className="h-24" />)
-          ) : borrowedBooks.length === 0 && pendingRequests.length === 0 ? (
+          ) : borrowedBooks.length === 0 ? (
             <Card className="my-books-empty p-8 text-center">
               <BookOpen className="w-12 h-12 mx-auto text-[var(--text-faint)] mb-3" />
               <h3 className="text-lg font-medium text-[var(--text)] mb-1">No borrowed books</h3>
               <p className="text-[var(--text-muted)] mb-4">You haven't borrowed any books yet.</p>
-              <Link to="/search" className="btn-primary inline-flex items-center gap-2">
+              <Link to="/search" className="btn btn-primary">
                 <Plus className="w-4 h-4" />
                 Browse Library
               </Link>
@@ -153,26 +236,19 @@ function MyBooksPage() {
             <>
               {borrowedBooks.length > 0 && (
                 <div>
-                  <h3 className="font-semibold text-[var(--text)] mb-3">Currently Borrowed</h3>
                   <div className="space-y-3">
                     {borrowedBooks.map((transaction) => {
                       const book = transaction.book;
-                      const daysLeft = transaction.due_date ? Math.ceil((new Date(transaction.due_date) - new Date()) / (1000 * 60 * 60 * 24)) : 0;
+                      const daysLeft = transaction.due_date ? Math.ceil((new Date(transaction.due_date) - new Date(now)) / (1000 * 60 * 60 * 24)) : 0;
                       const isOverdue = daysLeft < 0;
                       const isDueSoon = daysLeft <= 3 && daysLeft >= 0;
 
                       return (
                         <Card key={transaction.id} className={`my-books-item p-4 ${isOverdue ? 'is-overdue' : ''}`}>
                           <div className="flex gap-4">
-                            <div className="relative w-16 h-20 flex-shrink-0 overflow-hidden rounded-lg bg-[var(--surface-2)]">
-                              <img
-                                src={book.cover_image ? book.cover_url : `https://via.placeholder.com/64x80?text=${encodeURIComponent(book.title.substring(0, 8))}`}
-                                alt={book.title}
-                                className="w-full h-full object-cover"
-                              />
-                            </div>
+                            <BookThumbnail book={book} />
                             <div className="flex-1 min-w-0">
-                              <div className="flex items-start justify-between">
+                              <div className="my-books-item-heading flex flex-wrap items-start justify-between gap-3">
                                 <div className="min-w-0">
                                   <h4 className="font-medium text-[var(--text)] truncate">{book.title}</h4>
                                   <p className="text-sm text-[var(--text-muted)] truncate">{book.author}</p>
@@ -193,7 +269,7 @@ function MyBooksPage() {
                                   </span>
                                 )}
                               </div>
-                              <div className="mt-3 flex gap-2">
+                              <div className="my-books-actions mt-3 flex flex-wrap gap-2">
                                 <Button
                                   variant="secondary"
                                   size="sm"
@@ -211,15 +287,9 @@ function MyBooksPage() {
                                 >
                                   {transaction.renewal_requested_at ? 'Renewal requested' : 'Request Renewal'}
                                 </Button>
-                                <Link to={`/books/${book.id}`} className="btn-ghost text-sm">
+                                <Link to={`/books/${book.id}`} className="btn btn-secondary btn-sm">
                                   View Details
                                 </Link>
-                              </div>
-                            </div>
-                            <div className="flex flex-col items-end gap-2">
-                              <div className="text-right text-xs text-[var(--text-muted)]">
-                                <p>Borrowed: {transaction.borrow_date ? formatDate(transaction.borrow_date) : 'N/A'}</p>
-                                <p>Due: {transaction.due_date ? formatDate(transaction.due_date) : 'N/A'}</p>
                               </div>
                             </div>
                           </div>
@@ -230,59 +300,6 @@ function MyBooksPage() {
                 </div>
               )}
 
-              {pendingRequests.length > 0 && (
-                <div className="mt-6">
-                  <h3 className="font-semibold text-[var(--text)] mb-3">Pending Requests</h3>
-                  <div className="space-y-3">
-                    {pendingRequests.map((transaction) => {
-                      const book = transaction.book;
-                      const statusLabels = {
-                        pending: 'Pending Approval',
-                        approved: 'Approved - Ready to Borrow',
-                        return_requested: 'Return Requested',
-                      };
-                      return (
-                        <Card key={transaction.id} className="my-books-item p-4">
-                          <div className="flex gap-4">
-                            <div className="relative w-16 h-20 flex-shrink-0 overflow-hidden rounded-lg bg-[var(--surface-2)]">
-                              <img
-                                src={book.cover_image ? book.cover_url : `https://via.placeholder.com/64x80?text=${encodeURIComponent(book.title.substring(0, 8))}`}
-                                alt={book.title}
-                                className="w-full h-full object-cover"
-                              />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-start justify-between">
-                                <div className="min-w-0">
-                                  <h4 className="font-medium text-[var(--text)] truncate">{book.title}</h4>
-                                  <p className="text-sm text-[var(--text-muted)] truncate">{book.author}</p>
-                                </div>
-                                <Badge variant={transaction.status === 'pending' ? 'warning' : transaction.status === 'approved' ? 'success' : 'info'}>
-                                  {statusLabels[transaction.status] || transaction.status}
-                                </Badge>
-                              </div>
-                              <p className="text-sm text-[var(--text-muted)] mt-1">
-                                Requested: {transaction.request_date ? formatDate(transaction.request_date) : 'N/A'}
-                                {transaction.approval_date && ` • Approved: ${formatDate(transaction.approval_date)}`}
-                              </p>
-                              {transaction.status === 'pending' && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleCancelBorrowRequest(transaction.id)}
-                                  disabled={actionLoading === transaction.id}
-                                >
-                                  Cancel Request
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                        </Card>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
             </>
           )}
         </div>
@@ -297,7 +314,7 @@ function MyBooksPage() {
               <Bookmark className="w-12 h-12 mx-auto text-[var(--text-faint)] mb-3" />
               <h3 className="text-lg font-medium text-[var(--text)] mb-1">No reservations</h3>
               <p className="text-[var(--text-muted)] mb-4">You don't have any active reservations.</p>
-              <Link to="/search" className="btn-primary inline-flex items-center gap-2">
+              <Link to="/search" className="btn btn-primary">
                 <Plus className="w-4 h-4" />
                 Find Books to Reserve
               </Link>
@@ -307,21 +324,15 @@ function MyBooksPage() {
               {reservations.map((res) => (
                 <Card key={res.id} className="my-books-item p-4">
                   <div className="flex gap-4">
-                    <div className="relative w-16 h-20 flex-shrink-0 overflow-hidden rounded-lg bg-[var(--surface-2)]">
-                      <img
-                        src={res.book.cover_image ? res.book.cover_url : `https://via.placeholder.com/64x80?text=${encodeURIComponent(res.book.title.substring(0, 8))}`}
-                        alt={res.book.title}
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
+                    <BookThumbnail book={res.book} />
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between">
+                      <div className="my-books-item-heading flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0">
                           <h4 className="font-medium text-[var(--text)] truncate">{res.book.title}</h4>
                           <p className="text-sm text-[var(--text-muted)] truncate">{res.book.author}</p>
                         </div>
                         <Badge variant={res.status === 'ready_for_pickup' ? 'success' : res.status === 'approved' ? 'warning' : res.status === 'pending' ? 'info' : 'danger'}>
-                          {res.status.replace('_', ' ')}
+                          {res.status.replaceAll('_', ' ')}
                         </Badge>
                       </div>
                       <p className="text-sm text-[var(--text-muted)] mt-1">
@@ -330,7 +341,7 @@ function MyBooksPage() {
                       </p>
                       {res.status !== 'completed' && res.status !== 'cancelled' && res.status !== 'expired' && (
                         <Button
-                          variant="ghost"
+                          variant="secondary"
                           size="sm"
                           onClick={() => handleCancelReservation(res.id)}
                           disabled={actionLoading === res.id}
@@ -363,22 +374,24 @@ function MyBooksPage() {
               {pendingRequests.map((transaction) => (
                 <Card key={transaction.id} className="my-books-item p-4">
                   <div className="flex gap-4">
-                    <div className="relative w-16 h-20 flex-shrink-0 overflow-hidden rounded-lg bg-[var(--surface-2)]">
-                      <img
-                        src={transaction.book.cover_image ? transaction.book.cover_url : `https://via.placeholder.com/64x80?text=${encodeURIComponent(transaction.book.title.substring(0, 8))}`}
-                        alt={transaction.book.title}
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
+                    <BookThumbnail book={transaction.book} />
                     <div className="flex-1 min-w-0">
                       <h4 className="font-medium text-[var(--text)] truncate">{transaction.book.title}</h4>
                       <p className="text-sm text-[var(--text-muted)] truncate">{transaction.book.author}</p>
                       <Badge variant={transaction.status === 'pending' ? 'warning' : transaction.status === 'approved' ? 'success' : 'info'} className="mt-2">
-                        {transaction.status.replace('_', ' ')}
+                        {{ pending: 'Pending Approval', approved: 'Approved — Ready to Borrow', return_requested: 'Return Requested' }[transaction.status] || transaction.status.replaceAll('_', ' ')}
                       </Badge>
                       <p className="text-xs text-[var(--text-faint)] mt-2">
                         Requested: {transaction.request_date ? formatDate(transaction.request_date) : 'N/A'}
                       </p>
+                      <div className="my-books-actions mt-3 flex flex-wrap gap-2">
+                        <Link to={`/books/${transaction.book.id}`} className="btn btn-secondary btn-sm">View Details</Link>
+                        {transaction.status === 'pending' && (
+                          <Button variant="secondary" size="sm" onClick={() => handleCancelBorrowRequest(transaction.id)} disabled={actionLoading === transaction.id}>
+                            {actionLoading === transaction.id ? 'Cancelling...' : 'Cancel Request'}
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </Card>
@@ -403,13 +416,7 @@ function MyBooksPage() {
               {history.map((transaction) => (
                 <Card key={transaction.id} className="my-books-item p-4">
                   <div className="flex gap-4">
-                    <div className="relative w-16 h-20 flex-shrink-0 overflow-hidden rounded-lg bg-[var(--surface-2)]">
-                      <img
-                        src={transaction.book.cover_image ? transaction.book.cover_url : `https://via.placeholder.com/64x80?text=${encodeURIComponent(transaction.book.title.substring(0, 8))}`}
-                        alt={transaction.book.title}
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
+                    <BookThumbnail book={transaction.book} />
                     <div className="flex-1 min-w-0">
                       <h4 className="font-medium text-[var(--text)] truncate">{transaction.book.title}</h4>
                       <p className="text-sm text-[var(--text-muted)] truncate">{transaction.book.author}</p>
@@ -428,6 +435,7 @@ function MyBooksPage() {
           )}
         </div>
       )}
+      </section>
     </div>
   );
 }

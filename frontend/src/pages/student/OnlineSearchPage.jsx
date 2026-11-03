@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
-import { Search, ExternalLink, BookOpen, X, ChevronDown, History, Clock } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Search, ExternalLink, BookOpen, X, History, Clock } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import api from '../../utils/api';
 import Badge from '../../components/ui/Badge';
 import Card from '../../components/ui/Card';
@@ -8,7 +9,8 @@ import Select from '../../components/ui/Select';
 import { SkeletonCard } from '../../components/ui/Skeleton';
 
 function OnlineSearchPage() {
-  const [query, setQuery] = useState('');
+  const [searchParams] = useSearchParams();
+  const [query, setQuery] = useState(() => searchParams.get('q') || '');
   const [searchedQuery, setSearchedQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -16,11 +18,7 @@ function OnlineSearchPage() {
   const [showHistory, setShowHistory] = useState(false);
   const [source, setSource] = useState('all');
 
-  useEffect(() => {
-    fetchHistory();
-  }, []);
-
-  const fetchHistory = async () => {
+  const fetchHistory = useCallback(async () => {
     try {
       const response = await api.get('/online-search/history');
       if (response.data.success) {
@@ -29,7 +27,15 @@ function OnlineSearchPage() {
     } catch (err) {
       console.error('Failed to fetch history:', err);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    // Defer network setup and cancel it if this view changes before it starts.
+    const timer = setTimeout(() => {
+      fetchHistory();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchHistory]);
 
   const handleSearch = async (searchQuery, searchSource = source) => {
     const normalizedQuery = searchQuery.trim();
@@ -76,7 +82,7 @@ function OnlineSearchPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="online-search-page space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-heading font-bold text-[var(--text)]">Search Online</h1>
@@ -88,10 +94,10 @@ function OnlineSearchPage() {
         </Badge>
       </div>
 
-      <Card className="border-teal-200 bg-teal-50 p-4 dark:border-teal-800 dark:bg-teal-900/10">
+      <Card className="online-search-notice p-4">
         <div className="flex items-start gap-3">
-          <ExternalLink className="mt-0.5 h-5 w-5 flex-shrink-0 text-teal-600" />
-          <div className="text-sm text-teal-800 dark:text-teal-200">
+          <ExternalLink className="mt-0.5 h-5 w-5 flex-shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
+          <div className="text-sm text-[var(--text-muted)] leading-relaxed">
             <p className="mb-1 font-medium">Books found here are not part of the GSA physical collection.</p>
             <p>We only link to legitimate sources. Some books may offer free previews or full-text access.</p>
           </div>
@@ -99,30 +105,34 @@ function OnlineSearchPage() {
       </Card>
 
       <Card className="p-4">
-        <form onSubmit={handleSearchSubmit} className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(180px,220px)_auto] md:items-end">
-          <div className="relative min-w-0">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-[var(--text-faint)]" />
+        <form onSubmit={handleSearchSubmit} className="online-search-form grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(180px,220px)_auto] md:items-end">
+          <div className="min-w-0">
+            <label htmlFor="online-book-search" className="label">Search books</label>
+            <div className="relative">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-[var(--text-faint)] pointer-events-none" aria-hidden="true" />
             <input
+              id="online-book-search"
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search by title, author, ISBN, or keywords..."
-              className="input w-full pl-12 pr-4"
+              className="input library-search-input"
               autoFocus
             />
             {query && (
               <button
                 type="button"
                 onClick={clearResults}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--text-faint)] hover:text-[var(--text)]"
+                className="library-clear-search"
                 aria-label="Clear search"
               >
                 <X className="h-5 w-5" />
               </button>
             )}
+            </div>
           </div>
           <Select
-            label="Source"
+            label="Book source"
             value={source}
             onChange={(e) => handleSourceChange(e.target.value)}
             options={[
@@ -141,20 +151,21 @@ function OnlineSearchPage() {
       {/* Search history */}
       {searchHistory.length > 0 && !results.length && (
         <Card className="p-4">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <h3 className="font-semibold text-[var(--text)]">Recent Searches</h3>
-            <Button variant="ghost" size="sm" onClick={() => setShowHistory(!showHistory)}>
+            <Button variant="secondary" size="sm" onClick={() => setShowHistory(!showHistory)} aria-expanded={showHistory} aria-controls="online-search-history">
               <History className="w-4 h-4 mr-1" />
               {showHistory ? 'Hide' : 'Show'}
             </Button>
           </div>
           {showHistory && (
-            <div className="space-y-2 max-h-60 overflow-y-auto">
+            <div id="online-search-history" className="mt-4 space-y-2 max-h-60 overflow-y-auto">
               {searchHistory.slice(0, 10).map((item, index) => (
                 <button
                   key={index}
                   onClick={() => handleHistoryClick(item)}
-                  className="w-full flex items-center justify-between p-3 text-left bg-[var(--surface-2)] rounded-lg hover:bg-[var(--border)] transition-colors"
+                  className="w-full flex items-center justify-between gap-3 p-3 text-left bg-[var(--surface-2)] border border-[var(--border)] rounded-lg hover:bg-[var(--border)] transition-colors"
+                  aria-label={`Search again for ${item.query}`}
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-8 h-8 rounded bg-teal-100 dark:bg-teal-900/30 flex items-center justify-center flex-shrink-0">
@@ -165,7 +176,7 @@ function OnlineSearchPage() {
                       <p className="text-xs text-[var(--text-muted)]">{item.source} • {new Date(item.created_at).toLocaleDateString()}</p>
                     </div>
                   </div>
-                  <ChevronDown className="w-4 h-4 text-[var(--text-faint)]" />
+                  <Search className="w-4 h-4 shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
                 </button>
               ))}
             </div>
@@ -176,13 +187,13 @@ function OnlineSearchPage() {
       {/* Results */}
       {searchedQuery && (
         <section>
-          <div className="flex items-center justify-between mb-4">
-            <p className="text-[var(--text-muted)]">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <p className="text-sm text-[var(--text-muted)]" role="status">
               {loading ? 'Searching...' : results.length > 0 ? `Found ${results.length} results` : 'No results found'}
               <span className="ml-2">for <strong>"{searchedQuery}"</strong></span>
             </p>
             {results.length > 0 && (
-              <Button variant="ghost" size="sm" onClick={clearResults}>
+              <Button variant="secondary" size="sm" onClick={clearResults}>
                 <X className="mr-1 h-4 w-4" />
                 Clear Results
               </Button>
@@ -202,7 +213,7 @@ function OnlineSearchPage() {
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {results.map((book, index) => (
-                <article key={`${book.source}-${book.isbn || `${book.title}-${index}`}`} className="card card-hover overflow-hidden p-4">
+                <article key={`${book.source}-${book.isbn || `${book.title}-${index}`}`} className="online-result-card card card-hover overflow-hidden p-4">
                   <div className="mb-4 flex h-44 items-center justify-center overflow-hidden rounded-lg bg-[var(--surface-2)]">
                     {book.cover_url ? (
                       <img src={book.cover_url} alt={`Cover of ${book.title}`} loading="lazy" className="h-full w-full object-contain" />
@@ -222,7 +233,7 @@ function OnlineSearchPage() {
                       href={book.preview_link || book.external_url}
                       target="_blank"
                       rel="noreferrer"
-                      className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-primary-700 hover:underline"
+                      className="btn btn-secondary btn-sm mt-4"
                     >
                       View online <ExternalLink className="h-3.5 w-3.5" />
                     </a>
@@ -236,8 +247,8 @@ function OnlineSearchPage() {
 
       {/* Empty state */}
       {!searchedQuery && !results.length && !loading && (
-        <Card className="p-8 text-center">
-          <Search className="mx-auto mb-3 h-12 w-12 text-[var(--text-faint)]" />
+        <Card className="online-search-empty p-6 sm:p-10 text-center">
+          <div className="saved-books-empty-icon"><Search className="h-8 w-8" aria-hidden="true" /></div>
           <h3 className="mb-2 text-xl font-semibold text-[var(--text)]">Search for books online</h3>
           <p className="mx-auto max-w-lg text-[var(--text-muted)]">
             Find books from online catalogs. Results are not part of the GSA physical collection.

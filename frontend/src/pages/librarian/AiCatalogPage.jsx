@@ -1,17 +1,14 @@
-import { useState, useEffect, useRef } from 'react';
-import {
-  Upload, FileImage, Search, BookOpen, Sparkles, CheckCircle,
-  AlertCircle, X, ChevronRight, ChevronDown, Eye, Edit, Save, Download,
-  Image, Loader2, Trash2, Plus, ExternalLink
-} from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Upload, FileImage, Search, BookOpen, Sparkles, CheckCircle, X, ChevronRight, Eye, Edit, Save, Trash2, Plus, ExternalLink, RotateCcw, History, AlertCircle } from 'lucide-react';
 import api from '../../utils/api';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
-import Input from '../../components/ui/Input';
+
 import Card from '../../components/ui/Card';
-import Modal from '../../components/ui/Modal';
+
 import { formatDate } from '../../utils/helpers';
+import { useToast } from '../../contexts/useToast';
+import './ai-catalog.css';
 
 const STEPS = [
   { key: 'upload', label: 'Upload', icon: Upload },
@@ -31,6 +28,7 @@ const STATUS_COLORS = {
 };
 
 const SOURCE_BADGES = {
+  gemini: { variant: 'purple', label: 'Gemini', icon: Sparkles },
   ocr: { variant: 'purple', label: 'OCR', icon: Sparkles },
   open_library: { variant: 'primary', label: 'Open Library', icon: BookOpen },
   google_books: { variant: 'teal', label: 'Google Books', icon: ExternalLink },
@@ -38,7 +36,7 @@ const SOURCE_BADGES = {
 };
 
 function AiCatalogPage() {
-  const { user } = useAuth();
+
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeJob, setActiveJob] = useState(null);
@@ -50,39 +48,54 @@ function AiCatalogPage() {
   const [googleBooksData, setGoogleBooksData] = useState(null);
   const [finalMetadata, setFinalMetadata] = useState({});
   const [reviewData, setReviewData] = useState({});
+  const [manualEditFields, setManualEditFields] = useState({});
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [errors, setErrors] = useState({});
   const [showDrafts, setShowDrafts] = useState(true);
+  const [dragging, setDragging] = useState(false);
+  const [jobsError, setJobsError] = useState('');
   const fileInputRef = useRef(null);
+  const reviewFieldRefs = useRef({});
+  const wizardRef = useRef(null);
+  const toast = useToast();
 
   useEffect(() => {
-    fetchJobs();
-  }, []);
+    return () => { if (previewUrl?.startsWith('blob:')) URL.revokeObjectURL(previewUrl); };
+  }, [previewUrl]);
 
-  const fetchJobs = async () => {
+  const fetchJobs = useCallback(async () => {
     try {
       const response = await api.get('/ai-catalog');
       if (response.data.success) {
         setJobs(response.data.data.data);
+        setJobsError('');
       }
     } catch (err) {
       console.error('Failed to fetch jobs:', err);
+      setJobsError('Recent jobs could not be loaded. Please try again.');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleFileSelect = (e) => {
-    const file = e.target.files[0];
+  useEffect(() => {
+    // Defer network setup and cancel it if this view changes before it starts.
+    const timer = setTimeout(() => {
+      fetchJobs();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchJobs]);
+
+  const selectFile = (file) => {
     if (file) {
-      if (!file.type.startsWith('image/')) {
-        alert('Please select an image file');
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+        setErrors({ general: 'Choose a JPG, PNG, or WebP image.' });
         return;
       }
       if (file.size > 5 * 1024 * 1024) {
-        alert('File size must be less than 5MB');
+        setErrors({ general: 'Choose an image up to 5 MB.' });
         return;
       }
       setUploadedFile(file);
@@ -126,6 +139,7 @@ function AiCatalogPage() {
           updateWizardFromJob(job);
           if (job.status === 'needs_review' || job.status === 'draft') {
             setCurrentStep(4); // Review step
+            fetchJobs();
           } else if (job.status === 'processing') {
             setTimeout(poll, 2000);
           } else if (job.status === 'failed') {
@@ -141,17 +155,25 @@ function AiCatalogPage() {
   };
 
   const updateWizardFromJob = (job) => {
-    if (job.extracted_metadata) setExtractedData(job.extracted_metadata);
-    if (job.open_library_result) setOpenLibraryData(job.open_library_result);
-    if (job.google_books_result) setGoogleBooksData(job.google_books_result);
-    if (job.final_metadata) {
-      setFinalMetadata(job.final_metadata);
-      setReviewData({ ...job.final_metadata });
-    }
+    setExtractedData(job.extracted_metadata || {});
+    setOpenLibraryData(job.open_library_result || null);
+    setGoogleBooksData(job.google_books_result || null);
+    setFinalMetadata(job.final_metadata || {});
+    setReviewData({ ...(job.final_metadata || job.extracted_metadata || {}) });
   };
 
   const handleReviewFieldChange = (field, value) => {
     setReviewData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleManualEntry = (field) => {
+    const value = reviewData[field.key] ?? finalMetadata[field.key] ?? extractedData[field.key] ?? '';
+    setManualEditFields((prev) => ({ ...prev, [field.key]: true }));
+    setReviewData((prev) => ({
+      ...prev,
+      [field.key]: value === 'Not detected' ? '' : value,
+    }));
+    reviewFieldRefs.current[field.key]?.focus();
   };
 
   const handleSaveDraft = async () => {
@@ -160,9 +182,10 @@ function AiCatalogPage() {
     try {
       await api.post(`/ai-catalog/${activeJob.id}/draft`, { final_metadata: reviewData });
       setActiveJob((prev) => prev ? { ...prev, status: 'draft', final_metadata: reviewData } : null);
-      alert('Draft saved successfully!');
-    } catch (err) {
-      alert('Failed to save draft');
+      toast.success('Draft saved successfully.');
+      fetchJobs();
+    } catch {
+      toast.error('Failed to save draft. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -178,9 +201,9 @@ function AiCatalogPage() {
     try {
       const response = await api.post(`/ai-catalog/${activeJob.id}/confirm`, reviewData);
       if (response.data.success) {
-        alert('Book added to catalog successfully!');
+        toast.success('Book added to catalog successfully.');
         fetchJobs();
-        resetWizard();
+        setCurrentStep(5);
       }
     } catch (err) {
       setErrors({ general: err.response?.data?.message || 'Failed to confirm' });
@@ -199,6 +222,7 @@ function AiCatalogPage() {
     setGoogleBooksData(null);
     setFinalMetadata({});
     setReviewData({});
+    setManualEditFields({});
     setErrors({});
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -207,8 +231,8 @@ function AiCatalogPage() {
     try {
       await api.post(`/ai-catalog/${jobId}/retry`);
       fetchJobs();
-    } catch (err) {
-      alert('Failed to retry job');
+    } catch {
+      toast.error('Failed to retry job. Please try again.');
     }
   };
 
@@ -218,7 +242,7 @@ function AiCatalogPage() {
       await api.delete(`/ai-catalog/${jobId}`);
       setJobs((prev) => prev.filter((j) => j.id !== jobId));
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to delete job');
+      toast.error(err.response?.data?.message || 'Failed to delete job');
     }
   };
 
@@ -235,72 +259,62 @@ function AiCatalogPage() {
 
   const renderStep = () => {
     switch (currentStep) {
-      case 0: return <StepUpload />;
+      case 0: return StepUpload();
       case 1: return <StepExtract />;
       case 2: return <StepVerify />;
       case 3: return <StepClassify />;
-      case 4: return <StepReview />;
+      case 4: return StepReview();
       case 5: return <StepConfirm />;
-      default: return <StepUpload />;
+      default: return StepUpload();
     }
   };
 
   function StepUpload() {
     return (
-      <div className="text-center py-12">
-        <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center">
-          <Upload className="w-12 h-12 text-primary-600" />
+      <div className="ai-upload-layout">
+        <div className="ai-upload-guide">
+          <span className="ai-eyebrow"><Sparkles size={14} /> AI-ASSISTED CATALOGING</span>
+          <h2>From book cover<br />to catalog entry.</h2>
+          <p>Upload a cover and let AI suggest the book details. You can review and edit everything before adding it to your library.</p>
+          <ul className="ai-upload-tips">
+            <li><CheckCircle size={17} /> Use a clear, well-lit photo.</li>
+            <li><CheckCircle size={17} /> Keep the title and author visible.</li>
+            <li><CheckCircle size={17} /> Review the details before confirming.</li>
+          </ul>
+          <div className="ai-upload-note"><Eye size={18} /><p>You stay in control. Books are added only after you confirm.</p></div>
         </div>
-        <h3 className="text-xl font-semibold text-[var(--text)] mb-2">Upload Book Cover</h3>
-        <p className="text-[var(--text-muted)] mb-6 max-w-md mx-auto">
-          Upload a clear photo of the book cover. Supported formats: JPG, PNG, WebP (max 5MB)
-        </p>
-        <div className="max-w-md mx-auto">
-          <label className="relative cursor-pointer">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleFileSelect}
-              className="sr-only"
-            />
-            <div className={`border-2 border-dashed rounded-xl p-8 transition-colors ${
-              previewUrl ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20' : 'border-[var(--border)] hover:border-primary-300'
-            }`}>
-              {previewUrl ? (
-                <div className="relative">
-                  <img src={previewUrl} alt="Preview" className="max-h-64 mx-auto rounded-lg" />
-                  <button
-                    type="button"
-                    onClick={() => { setUploadedFile(null); setPreviewUrl(null); setCurrentStep(0); }}
-                    className="absolute top-2 right-2 btn-ghost p-1"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <FileImage className="w-12 h-12 mx-auto text-[var(--text-faint)] mb-3" />
-                  <p className="text-[var(--text-muted)]">Click to upload or drag and drop</p>
-                  <p className="text-xs text-[var(--text-faint)] mt-1">JPG, PNG, WebP • Max 5MB</p>
-                </>
-              )}
-            </div>
-          </label>
+        <div className="ai-upload-panel">
+          <div className={`ai-dropzone ${dragging ? 'is-dragging' : ''} ${previewUrl ? 'has-preview' : ''}`}
+            onDragOver={(event) => { event.preventDefault(); if (!processing) setDragging(true); }}
+            onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setDragging(false); }}
+            onDrop={(event) => { event.preventDefault(); setDragging(false); if (!processing) selectFile(event.dataTransfer.files[0]); }}>
+            <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp"
+              aria-label="Choose a book cover" className="sr-only" tabIndex={-1} disabled={processing}
+              onChange={(event) => { selectFile(event.target.files[0]); event.target.value = ''; }} />
+            {previewUrl ? <>
+              <img src={previewUrl} alt="Selected book cover" className="ai-cover-preview" />
+              <strong className="ai-upload-filename">{uploadedFile?.name}</strong>
+              <p>Ready to extract book details</p>
+              <div className="ai-upload-file-actions">
+                <Button variant="secondary" size="sm" onClick={() => fileInputRef.current?.click()} disabled={processing}><Upload size={15} /> Change image</Button>
+                <Button variant="secondary" size="sm" onClick={() => { setUploadedFile(null); setPreviewUrl(null); setErrors({}); }} disabled={processing}><X size={15} /> Remove</Button>
+              </div>
+            </> : <>
+              <div className="ai-upload-icon"><FileImage size={32} /></div>
+              <h3>Upload a book cover</h3>
+              <p>Drag and drop your image here, or browse your files.</p>
+              <Button onClick={() => fileInputRef.current?.click()}><Upload size={18} /> Choose image</Button>
+              <span className="ai-upload-formats">JPG, PNG or WebP · Up to 5 MB</span>
+            </>}
+          </div>
+          {errors.general && <p className="ai-catalog-error" role="alert"><AlertCircle size={17} />{errors.general}</p>}
+          {previewUrl && <Button className="ai-start-button" onClick={startProcessing} loading={processing} disabled={!uploadedFile || processing}>
+            <Sparkles size={18} /> Extract book details <ChevronRight size={17} />
+          </Button>}
         </div>
-        {previewUrl && (
-          <>
-            {errors.general && <p className="mt-4 text-sm text-red-600">{errors.general}</p>}
-            <Button className="mt-6 w-full md:w-auto" size="lg" onClick={startProcessing} loading={processing} disabled={!uploadedFile || processing}>
-            Start Processing
-            <ChevronRight className="w-4 h-4" />
-            </Button>
-          </>
-        )}
       </div>
     );
   }
-
   function StepExtract() {
     return (
       <div className="text-center py-12">
@@ -309,7 +323,7 @@ function AiCatalogPage() {
         </div>
         <h3 className="text-xl font-semibold text-[var(--text)] mb-2">Extracting Information</h3>
         <p className="text-[var(--text-muted)] mb-6">Reading text from the book cover using OCR...</p>
-        {errors.general && <p className="text-sm text-red-600 mb-4">{errors.general}</p>}
+        {errors.general && <div className="ai-processing-error" role="alert"><p>{errors.general}</p><Button variant="secondary" onClick={resetWizard}><Upload size={16} /> Try another upload</Button></div>}
         <div className="max-w-md mx-auto space-y-4">
           {Object.entries(extractedData).map(([key, value]) => (
             <div key={key} className="flex items-center justify-between p-3 bg-[var(--surface-2)] rounded-lg">
@@ -404,7 +418,7 @@ function AiCatalogPage() {
       <div className="space-y-4">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-xl font-semibold text-[var(--text)]">Review & Edit Information</h3>
-          <Button variant="secondary" onClick={handleSaveDraft} loading={saving}>
+          <Button variant="secondary" onClick={handleSaveDraft} loading={saving} disabled={confirming}>
             <Save className="w-4 h-4" /> Save Draft
           </Button>
         </div>
@@ -413,38 +427,62 @@ function AiCatalogPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[60vh] overflow-y-auto">
           {fields.map((field) => {
-            const value = reviewData[field.key] || finalMetadata[field.key] || extractedData[field.key] || '';
+            const fieldValue = reviewData[field.key] ?? finalMetadata[field.key] ?? extractedData[field.key] ?? '';
+            const value = fieldValue === 'Not detected' ? '' : fieldValue;
             const source = getFieldSource(field.key);
             const sourceInfo = SOURCE_BADGES[source] || SOURCE_BADGES.manual;
-            const isNotDetected = !value || value === 'Not detected';
+            const isNotDetected = !value;
 
             return (
               <div key={field.key} className={`${isNotDetected ? 'border-2 border-dashed border-amber-300 bg-amber-50 dark:bg-amber-900/10' : ''} p-3 rounded-lg`}>
                 <div className="flex items-start justify-between gap-2 mb-1">
-                  <label className="label mb-0 flex-1">{field.label} {field.required && <span className="text-red-500">*</span>}</label>
-                  <Badge variant={sourceInfo.variant} className="text-xs flex-shrink-0">
-                    {sourceInfo.icon && <sourceInfo.icon className="w-3 h-3 mr-1" />}
-                    {sourceInfo.label}
-                  </Badge>
+                  <label htmlFor={`ai-field-${field.key}`} className="label mb-0 flex-1">{field.label} {field.required && <span className="text-red-500">*</span>}</label>
+                  {source === 'manual' ? (
+                    <button
+                      type="button"
+                      onClick={() => handleManualEntry(field)}
+                      className="inline-flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                      aria-label={`Enter ${field.label} manually`}
+                      title={`Enter ${field.label} manually`}
+                      aria-pressed={Boolean(manualEditFields[field.key])}
+                    >
+                      <Edit className="w-3 h-3" />
+                      {manualEditFields[field.key] ? 'Editing' : 'Manual'}
+                    </button>
+                  ) : (
+                    <Badge variant={sourceInfo.variant} className="text-xs flex-shrink-0">
+                      {sourceInfo.icon && <sourceInfo.icon className="w-3 h-3 mr-1" />}
+                      {sourceInfo.label}
+                    </Badge>
+                  )}
                 </div>
                 {field.type === 'textarea' ? (
                   <textarea
-                    value={reviewData[field.key] || value}
+                    id={`ai-field-${field.key}`}
+                    ref={(element) => { reviewFieldRefs.current[field.key] = element; }}
+                    readOnly={source === 'manual' && !manualEditFields[field.key]}
+                    value={value}
                     onChange={(e) => handleReviewFieldChange(field.key, e.target.value)}
                     className={`input min-h-[80px] resize-y ${isNotDetected ? 'border-amber-300' : ''}`}
                     placeholder={isNotDetected ? 'Not detected - please enter manually' : ''}
                   />
                 ) : field.type === 'date' ? (
                   <input
+                    id={`ai-field-${field.key}`}
+                    ref={(element) => { reviewFieldRefs.current[field.key] = element; }}
+                    readOnly={source === 'manual' && !manualEditFields[field.key]}
                     type="date"
-                    value={reviewData[field.key] || value}
+                    value={value}
                     onChange={(e) => handleReviewFieldChange(field.key, e.target.value)}
                     className={`input ${isNotDetected ? 'border-amber-300' : ''}`}
                   />
                 ) : (
                   <input
+                    id={`ai-field-${field.key}`}
+                    ref={(element) => { reviewFieldRefs.current[field.key] = element; }}
+                    readOnly={source === 'manual' && !manualEditFields[field.key]}
                     type="text"
-                    value={reviewData[field.key] || value}
+                    value={value}
                     onChange={(e) => handleReviewFieldChange(field.key, e.target.value)}
                     className={`input ${isNotDetected ? 'border-amber-300' : ''}`}
                     placeholder={isNotDetected ? 'Not detected' : ''}
@@ -461,8 +499,8 @@ function AiCatalogPage() {
         </div>
 
         <div className="pt-4 border-t-[var(--border)] flex justify-end gap-2">
-          <Button variant="secondary" onClick={() => setCurrentStep(3)}><ChevronRight className="w-4 h-4" /> Back</Button>
-          <Button onClick={handleConfirm} loading={confirming} disabled={!reviewData.title || !reviewData.author}>
+          <Button variant="secondary" onClick={resetWizard} disabled={confirming || saving}><Upload size={16} /> Start new upload</Button>
+          <Button onClick={handleConfirm} loading={confirming} disabled={saving || !reviewData.title || !reviewData.author}>
             <CheckCircle className="w-4 h-4" /> Confirm & Add to Catalog
           </Button>
         </div>
@@ -502,45 +540,49 @@ function AiCatalogPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div className="ai-catalog-page">
+      <div className="ai-catalog-heading">
         <div>
           <h1 className="text-2xl font-heading font-bold text-[var(--text)]">AI Book Cataloging</h1>
-          <p className="text-[var(--text-muted)]">Upload a book cover to automatically catalog using AI/OCR</p>
+          <p className="text-[var(--text-muted)]">Turn a cover photo into a library-ready book entry.</p>
         </div>
-        {showDrafts && jobs.length > 0 && (
-          <Button variant="secondary" onClick={() => setShowDrafts(!showDrafts)}>
-            <ChevronDown className="w-4 h-4" />
+        {jobs.length > 0 && (
+          <Button variant="secondary" aria-expanded={showDrafts} aria-controls="ai-recent-jobs" onClick={() => setShowDrafts(!showDrafts)}>
+            <History className="w-4 h-4" />
             {showDrafts ? 'Hide' : 'Show'} Recent Jobs
           </Button>
         )}
       </div>
 
       {/* Wizard */}
-      <Card className="p-6">
+      <Card className="ai-wizard-card">
+        <div ref={wizardRef} className="ai-wizard-anchor" tabIndex={-1} />
         {/* Stepper */}
-        <div className="stepper mb-8">
+        <ol className="ai-progress" aria-label="Cataloging progress">
           {STEPS.map((step, index) => (
-            <div key={step.key} className="stepper-step flex-1">
-              <div className={`stepper-icon ${index < currentStep ? 'completed' : index === currentStep ? 'active' : 'pending'}`}>
+            <li key={step.key} className={`ai-progress-step ${index < currentStep ? 'is-complete' : index === currentStep ? 'is-current' : ''}`} aria-current={index === currentStep ? 'step' : undefined}>
+              <div className="ai-progress-icon">
                 {index < currentStep ? <CheckCircle className="w-5 h-5" /> : <step.icon className="w-5 h-5" />}
               </div>
-              <p className="stepper-label">{step.label}</p>
-            </div>
+              <p>{step.label}<small>{index === currentStep ? 'Current step' : index < currentStep ? 'Complete' : `Step ${index + 1}`}</small></p>
+            </li>
           ))}
-        </div>
+        </ol>
 
-        {renderStep()}
+        <div className="ai-wizard-content">{renderStep()}</div>
       </Card>
 
       {/* Recent Jobs */}
       {showDrafts && (
-        <Card>
-          <div className="p-4 border-b-[var(--border)] flex items-center justify-between">
-            <h3 className="font-semibold text-[var(--text)]">Recent AI Cataloging Jobs</h3>
+        <Card className="ai-jobs-card" id="ai-recent-jobs">
+          <div className="ai-jobs-heading">
+            <div><h2><History size={19} /> Recent cataloging jobs</h2><p>Review suggestions, continue a draft, or retry a failed upload.</p></div>
+            <span className="ai-jobs-count">{jobs.length > 10 ? 'Latest 10 jobs' : `${jobs.length} job${jobs.length === 1 ? '' : 's'}`}</span>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
+          {jobsError && <div className="ai-jobs-empty" role="alert"><p>{jobsError}</p><Button variant="secondary" onClick={fetchJobs}><RotateCcw size={16} /> Try again</Button></div>}
+          {!jobsError && jobs.length === 0 ? <div className="ai-jobs-empty"><FileImage size={30} /><h3>No cataloging jobs yet</h3><p>Upload your first book cover to get started.</p></div> : !jobsError && <div className="ai-jobs-scroll" role="region" aria-label="Recent cataloging jobs" tabIndex={0}>
+            <table className="ai-jobs-table">
+              <caption className="sr-only">Recent book cover uploads and their cataloging status</caption>
               <thead>
                 <tr className="border-b-[var(--border)]">
                   <th className="px-4 py-3 text-left text-sm font-semibold text-[var(--text-muted)]">Image</th>
@@ -557,22 +599,30 @@ function AiCatalogPage() {
                   <tr key={job.id} className="border-b-[var(--border)] hover:bg-[var(--surface-2)]">
                     <td className="px-4 py-3">
                       {job.uploaded_image && (
-                        <img src={job.uploaded_image_url} alt="" className="w-16 h-20 object-cover rounded" />
+                        <div className="relative flex w-16 h-20 items-center justify-center rounded bg-[var(--surface-2)]">
+                          <FileImage className="w-5 h-5 text-[var(--text-faint)]" aria-hidden="true" />
+                          <img
+                            src={job.uploaded_image_url}
+                            alt=""
+                            onError={(event) => { event.currentTarget.hidden = true; }}
+                            className="absolute inset-0 w-full h-full object-cover rounded"
+                          />
+                        </div>
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <Badge variant={STATUS_COLORS[job.status] || 'info'}>
+                      <Badge variant={STATUS_COLORS[job.status] || 'info'} className={`ai-job-status status-${job.status}`}>
                         {job.status.replace('_', ' ')}
                       </Badge>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 ai-job-title">
                       {job.final_metadata?.title || job.extracted_metadata?.title || 'Not detected'}
                     </td>
                     <td className="px-4 py-3">
                       {job.final_metadata?.author || job.extracted_metadata?.author || 'Not detected'}
                     </td>
                     <td className="px-4 py-3">
-                      {job.confidence ? `${job.confidence}%` : 'N/A'}
+                      {job.confidence != null ? `${job.confidence}%` : 'N/A'}
                     </td>
                     <td className="px-4 py-3 text-sm text-[var(--text-muted)]">
                       {formatDate(job.created_at)}
@@ -580,23 +630,23 @@ function AiCatalogPage() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         {job.status === 'needs_review' && (
-                          <Button size="sm" variant="primary" onClick={() => { setActiveJob(job); updateWizardFromJob(job); setCurrentStep(4); }}>
-                            Review
+                          <Button size="sm" variant="primary" onClick={() => { setErrors({}); setManualEditFields({}); setActiveJob(job); updateWizardFromJob(job); setCurrentStep(4); wizardRef.current?.focus(); wizardRef.current?.scrollIntoView({ block: 'start' }); }}>
+                            <Eye size={15} /> Review
                           </Button>
                         )}
                         {job.status === 'draft' && (
-                          <Button size="sm" variant="secondary" onClick={() => { setActiveJob(job); updateWizardFromJob(job); setCurrentStep(4); }}>
-                            Continue
+                          <Button size="sm" variant="secondary" onClick={() => { setErrors({}); setManualEditFields({}); setActiveJob(job); updateWizardFromJob(job); setCurrentStep(4); wizardRef.current?.focus(); wizardRef.current?.scrollIntoView({ block: 'start' }); }}>
+                            <Edit size={15} /> Continue
                           </Button>
                         )}
                         {job.status === 'failed' && (
-                          <Button size="sm" variant="ghost" onClick={() => retryJob(job.id)}>
-                            Retry
+                          <Button size="sm" variant="secondary" onClick={() => retryJob(job.id)}>
+                            <RotateCcw size={15} /> Retry
                           </Button>
                         )}
                         {['confirmed', 'failed'].includes(job.status) && (
-                          <Button size="sm" variant="ghost" onClick={() => deleteJob(job.id)}>
-                            <Trash2 className="w-4 h-4" />
+                          <Button size="sm" variant="secondary" className="ai-delete-job" aria-label={`Delete job: ${job.final_metadata?.title || job.extracted_metadata?.title || 'Untitled book'}`} onClick={() => deleteJob(job.id)}>
+                            <Trash2 className="w-4 h-4" /> Delete
                           </Button>
                         )}
                       </div>
@@ -605,7 +655,7 @@ function AiCatalogPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </div>}
         </Card>
       )}
     </div>

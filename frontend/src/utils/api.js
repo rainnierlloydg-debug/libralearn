@@ -26,7 +26,8 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    const isLoginRequest = ['/auth/login', '/auth/librarian/login'].some(path => error.config?.url?.endsWith(path));
+    if (error.response?.status === 401 && !isLoginRequest) {
       // Token expired or invalid
       localStorage.removeItem('auth_token');
       localStorage.removeItem('user');

@@ -1,26 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import {
-  BookOpen, Users, Clock, AlertCircle, TrendingUp, TrendingDown,
-  Bookmark, RotateCcw, BarChart, Settings, ArrowRight, ExternalLink
-} from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import { BookOpen, Users, Clock, AlertCircle, Bookmark, RotateCcw, ArrowRight } from 'lucide-react';
 import api from '../../utils/api';
 import Badge from '../../components/ui/Badge';
-import Button from '../../components/ui/Button';
+
 import Card from '../../components/ui/Card';
 import { Skeleton } from '../../components/ui/Skeleton';
 
 function LibrarianDashboard() {
-  const { user } = useAuth();
+
   const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchDashboard();
-  }, []);
-
-  const fetchDashboard = async () => {
+  const fetchDashboard = useCallback(async () => {
     try {
       const response = await api.get('/dashboard/librarian');
       if (response.data.success) {
@@ -31,7 +23,15 @@ function LibrarianDashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    // Defer network setup and cancel it if this view changes before it starts.
+    const timer = setTimeout(() => {
+      fetchDashboard();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchDashboard]);
 
   const statCards = [
     { key: 'total_books', label: 'Total Books', icon: BookOpen, color: 'primary' },
@@ -118,6 +118,16 @@ function LibrarianDashboard() {
           </Card>
         ))}
       </div>
+
+      <Link to="/librarian/insights" className="block rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 transition-shadow hover:shadow-lg">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h2 className="font-semibold text-[var(--text)]">Analytics & Predictions</h2>
+            <p className="mt-1 text-sm text-[var(--text-muted)]">Explore borrowing trends, three-month demand forecasts, and copy planning.</p>
+          </div>
+          <ArrowRight className="h-5 w-5 flex-shrink-0 text-primary-600" aria-hidden="true" />
+        </div>
+      </Link>
 
       {/* Action needed cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

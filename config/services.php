@@ -1,5 +1,11 @@
 <?php
 
+$geminiModel = env('GEMINI_MODEL') ?: 'gemini-3.5-flash-lite';
+// Gemini 1.5 models were shut down. Keep older installations functional.
+if (str_starts_with($geminiModel, 'gemini-1.5-')) {
+    $geminiModel = 'gemini-3.5-flash-lite';
+}
+
 return [
 
     /*
@@ -38,13 +44,14 @@ return [
     // Google Cloud Vision TEXT_DETECTION for book-cover OCR (backend only).
     'google_vision' => [
         'api_key' => env('GOOGLE_CLOUD_VISION_API_KEY'),
-        'api_url' => env('GOOGLE_CLOUD_VISION_API_URL', 'https://vision.googleapis.com/v1/images:annotate'),
+        'api_url' => env('GOOGLE_CLOUD_VISION_API_URL') ?: 'https://vision.googleapis.com/v1/images:annotate',
     ],
 
-    'openai' => [
-        'api_key' => env('OPENAI_API_KEY'),
-        'api_url' => env('OPENAI_API_URL', 'https://api.openai.com/v1/chat/completions'),
-        'model' => env('OPENAI_MODEL', 'gpt-4o-mini'),
+    'gemini' => [
+        'api_key' => env('GEMINI_API_KEY'),
+        'catalog_api_key' => env('GEMINI_CATALOG_API_KEY'),
+        'api_url' => env('GEMINI_API_URL') ?: 'https://generativelanguage.googleapis.com/v1beta/models',
+        'model' => $geminiModel,
     ],
 
     'open_library' => [
