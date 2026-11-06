@@ -22,7 +22,7 @@ if [ "${RUN_MIGRATIONS:-false}" = "true" ]; then
 fi
 
 if [ "${LIBRARY_DEMO_DATA:-false}" = "true" ]; then
-    php artisan db:seed --class=SyntheticDemoSeeder --force
+    php artisan library:seed-demo
 fi
 
 if [ "${RUN_BACKGROUND_PROCESSES:-false}" = "true" ]; then

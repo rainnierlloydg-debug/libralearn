@@ -164,14 +164,22 @@ class SyntheticDemoSeeder extends Seeder
                     1 => [12, 12, 12, 12, 12, 12],
                     default => [18, 15, 12, 9, 6, 3],
                 };
+                // Keep cloud startup bounded: fetch existing fixture keys once and
+                // insert missing history in one batch instead of two queries per loan.
+                $existingHistory = BorrowTransaction::where('book_id', $book->id)
+                    ->where('notes', 'like', 'library:history:%')->pluck('notes')->flip();
+                $history = [];
                 foreach ($profile as $month => $count) {
                     $start = now()->startOfMonth()->subMonths(6 - $month);
                     for ($n = 0; $n < $count; $n++) {
+                        $note = 'library:history:'.$index.':'.$start->format('Y-m').':'.$n;
+                        if ($existingHistory->has($note)) {
+                            continue;
+                        }
                         $borrowed = $start->copy()->addDays(intdiv($n, 3) * 4)->setTime(9 + $n % 3, 0);
                         $due = $borrowed->copy()->addDays(3);
-                        BorrowTransaction::firstOrCreate([
-                            'notes' => 'library:history:'.$index.':'.$start->format('Y-m').':'.$n,
-                        ], [
+                        $history[] = [
+                            'notes' => $note,
                             'student_id' => $students[($index + $n) % 24]->id,
                             'book_id' => $book->id, 'book_copy_id' => $copies[$n % 3]->id,
                             'request_date' => $borrowed->copy()->subHour(),
@@ -179,8 +187,11 @@ class SyntheticDemoSeeder extends Seeder
                             'return_request_date' => $due, 'return_date' => $due, 'status' => 'returned',
                             'approved_by' => $admin->id, 'return_confirmed_by' => $admin->id,
                             'created_at' => $borrowed, 'updated_at' => $due,
-                        ]);
+                        ];
                     }
+                }
+                if ($history !== []) {
+                    DB::table('borrow_transactions')->insert($history);
                 }
 
                 if ($index < 9) {
@@ -231,6 +242,6 @@ class SyntheticDemoSeeder extends Seeder
         });
 
         $this->command?->info('Synthetic demo ready: 24 students, 1 admin, 18 titles, 54 copies, six months of history and current workflows.');
-        $this->command?->info('Login: admin@demo.example or student01@demo.example | Password: Demo12345! (new accounts only)');
+        $this->command?->info('Login: admin@demo.example or student01@demo.example. Hosted passwords come from LIBRARY_DEMO_PASSWORD; existing passwords are preserved.');
     }
 }

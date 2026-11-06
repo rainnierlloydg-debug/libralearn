@@ -33,7 +33,11 @@ The image derives `APP_URL` from `RENDER_EXTERNAL_URL`. Leave `VITE_API_URL`,
 into Laravel's `public/build`. Use `DB_CONNECTION=pgsql`, `DB_SSLMODE=require`,
 `COVERS_DISK=s3`, `AWS_USE_PATH_STYLE_ENDPOINT=true` as set in the Blueprint.
 
-Startup runs non-resetting `migrate --force`, then `SyntheticDemoSeeder --force`.
+Startup runs non-resetting `migrate --force`, then `library:seed-demo`. The demo
+command caches successful initialization in the database-backed cache, so cold
+starts skip seeding until the seeder version or calendar month changes. Clearing
+that cache permits another safe, repeatable seed. Historical loans are inserted
+in batches to limit cross-region database round trips.
 Never run `migrate:fresh`, `CleanDatabaseSeeder` or a database reset to deploy this demo.
 The synthetic seeder preserves existing records, passwords and workflow changes.
 It creates 25 accounts, 18 titles, 54 copies, 852 historical returns, current loans,
