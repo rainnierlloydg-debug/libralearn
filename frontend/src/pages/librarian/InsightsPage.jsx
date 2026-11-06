@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle, BookCopy, BrainCircuit, ChevronDown, ChevronUp, Info,
@@ -137,38 +137,67 @@ function InsightsPage() {
   const [briefingLoading, setBriefingLoading] = useState(true);
   const [error, setError] = useState('');
   const [categoryTab, setCategoryTab] = useState('genre');
+  const requestRef = useRef(null);
 
-  const load = useCallback(async (refresh = false) => {
+  const load = useCallback(async (refresh = false, background = false) => {
+    if (background && requestRef.current) return;
+    requestRef.current?.abort();
+    const controller = new AbortController();
+    requestRef.current = controller;
+    const signal = controller.signal;
     const selectedPeriod = PERIOD_OPTIONS.find((option) => option.key === period);
     const params = selectedPeriod.days ? { days: selectedPeriod.days } : { months: selectedPeriod.months };
-    setLoading(true);
-    setBriefingLoading(true);
+    if (!background) {
+      setLoading(true);
+      setBriefingLoading(true);
+    }
     setError('');
     try {
       const res = refresh
-        ? await api.post('/ai/insights/refresh', params)
-        : await api.get('/ai/insights', { params });
+        ? await api.post('/ai/insights/refresh', params, { signal })
+        : await api.get('/ai/insights', { params, signal });
+      if (signal.aborted) return;
       setData(res.data.data);
     } catch (err) {
+      if (signal.aborted) return;
       setError(err.response?.data?.message || 'Insights could not load right now. Please try again.');
+      setBriefingLoading(false);
+      requestRef.current = null;
+      return;
     } finally {
-      setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
 
     try {
-      const res = await api.get('/ai/insights/briefing', { params });
+      const res = await api.get('/ai/insights/briefing', { params, signal });
+      if (signal.aborted) return;
       setBriefing(res.data.data);
     } catch {
-      setBriefing(null);
+      if (!signal.aborted) setBriefing(null);
     } finally {
-      setBriefingLoading(false);
+      if (!signal.aborted) {
+        setBriefingLoading(false);
+        requestRef.current = null;
+      }
     }
   }, [period]);
 
   useEffect(() => {
     const timer = setTimeout(() => load(), 0);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      requestRef.current?.abort();
+      requestRef.current = null;
+    };
   }, [load]);
+
+  useEffect(() => {
+    if (!data?.processing) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') load(false, true);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [data?.processing, load]);
 
   return (
     <div className="insights-page">
@@ -200,6 +229,8 @@ function InsightsPage() {
           </Button>
         </div>
       </div>
+
+      {data?.processing && <p className="text-sm text-[var(--text-muted)]" role="status">Charts are ready. Forecast and briefing updates are processing in the background.</p>}
 
       {error && (
         <Card className="flex items-center gap-3 p-4 text-sm text-red-700">

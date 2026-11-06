@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Jobs\BuildLibraryInsights;
 use App\Http\Controllers\Controller;
 use App\Services\Ai\LibraryDemandService;
 use App\Services\Ai\LibraryInsightsNarrator;
@@ -22,11 +23,7 @@ class LibraryInsightsController extends Controller
     {
         [$months, $days] = $this->period($request);
 
-        $data = Cache::remember(
-            $this->cacheKey('analysis', $months, $days),
-            now()->addMinutes(config('library.insights.cache_minutes', 30)),
-            fn () => $this->demand->analyze($months, null, $days)
-        );
+        $data = $this->analysis($months, $days);
 
         return response()->json(['success' => true, 'data' => $data]);
     }
@@ -36,10 +33,11 @@ class LibraryInsightsController extends Controller
     {
         [$months, $days] = $this->period($request);
 
+        $data = $this->analysis($months, $days);
         $briefing = Cache::remember(
             $this->cacheKey('briefing', $months, $days),
             now()->addMinutes(config('library.insights.cache_minutes', 30)),
-            fn () => $this->narrator->narrate($this->demand->analyze($months, null, $days))
+            fn () => $this->narrator->narrate($data, false)
         );
 
         return response()->json(['success' => true, 'data' => $briefing]);
@@ -74,10 +72,28 @@ class LibraryInsightsController extends Controller
         ];
     }
 
+    private function analysis(int $months, ?int $days): array
+    {
+        $key = $this->cacheKey('analysis', $months, $days);
+        if ($data = Cache::get($key)) {
+            return $data;
+        }
+
+        // Serve charts immediately. Python and external AI run in a separate worker.
+        $data = $this->demand->analyze($months, null, $days, false);
+        $data['processing'] = !in_array(config('queue.default'), ['sync', 'null'], true);
+        Cache::put($key, $data, now()->addMinutes(config('library.insights.cache_minutes', 30)));
+        if ($data['processing']) {
+            BuildLibraryInsights::dispatch($months, $days, $key, $this->cacheKey('briefing', $months, $days));
+        }
+
+        return $data;
+    }
+
     private function cacheKey(string $type, int $months, ?int $days = null): string
     {
         $period = $days === null ? "{$months}m" : "{$days}d";
 
-        return "library_insights:v3:{$type}:{$period}:" . now()->format('Y-m-d');
+        return "library_insights:v4:{$type}:{$period}:" . now()->format('Y-m-d');
     }
 }

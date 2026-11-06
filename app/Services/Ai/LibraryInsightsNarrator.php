@@ -13,12 +13,12 @@ use Illuminate\Support\Facades\Log;
  */
 class LibraryInsightsNarrator
 {
-    public function narrate(array $analysis): array
+    public function narrate(array $analysis, bool $withAi = true): array
     {
         $facts = $this->facts($analysis);
         $apiKey = config('services.gemini.api_key');
 
-        if ($apiKey) {
+        if ($apiKey && $withAi) {
             $ai = $this->askModel($apiKey, $facts);
             if ($ai) {
                 return $ai + ['source' => 'ai'];
@@ -79,7 +79,7 @@ class LibraryInsightsNarrator
                         'maxOutputTokens' => 500,
                         'responseMimeType' => 'application/json',
                     ],
-                ]);
+                ], 8);
 
             if (!$response->successful()) {
                 Log::warning('Insights narration failed.', ['status' => $response->status()]);

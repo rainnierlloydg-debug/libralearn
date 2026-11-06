@@ -1,0 +1,242 @@
+[
+  {
+    "number": 1,
+    "file": "book-01.jpg",
+    "title": "The Lantern of Isla Verde",
+    "author": "Elena Marquez",
+    "scene": "a luminous antique lantern among lush tropical island greenery at twilight, distant emerald island and sea",
+    "cover_author": "Elena Marquez"
+  },
+  {
+    "number": 2,
+    "file": "book-02.jpg",
+    "title": "Mystery at the Old Library",
+    "author": "Gabriel Villanueva",
+    "scene": "a shadowy antique library aisle with glowing lamp, a mysterious key, scattered handwritten clues; midnight blue and amber",
+    "cover_author": "Gabriel Villanueva"
+  },
+  {
+    "number": 3,
+    "file": "book-03.jpg",
+    "title": "Robots of Tomorrow",
+    "author": "Sofia Navarro",
+    "scene": "a friendly sophisticated robot exploring a futuristic city with students; electric cyan and orange",
+    "cover_author": "Sofia Navarro"
+  },
+  {
+    "number": 4,
+    "file": "book-04.jpg",
+    "title": "Exploring Our Solar System",
+    "author": "Adrian Castillo",
+    "scene": "a beautiful educational cosmic panorama of planets, Saturn rings and the sun; indigo and copper",
+    "cover_author": "Adrian Castillo"
+  },
+  {
+    "number": 5,
+    "file": "book-05.jpg",
+    "title": "Everyday Algebra Adventures",
+    "author": "Isabel Mercado",
+    "scene": "an imaginative city of geometric forms with clear simple x and y symbols; yellow, coral and cobalt",
+    "cover_author": "Isabel Mercado"
+  },
+  {
+    "number": 6,
+    "file": "book-06.jpg",
+    "title": "Mga Kuwento sa Ating Bayan",
+    "author": "Luningning Soriano",
+    "scene": "a warm Philippine village scene with bahay kubo, rice fields and children listening to stories; terracotta and green",
+    "cover_author": "Luningning Soriano"
+  },
+  {
+    "number": 7,
+    "file": "book-07.jpg",
+    "title": "Young Inventors Workshop",
+    "author": "Marco Valdez",
+    "scene": "a vibrant student workshop with gears, little inventions and tools; orange and teal",
+    "cover_author": "Marco Valdez"
+  },
+  {
+    "number": 8,
+    "file": "book-08.jpg",
+    "title": "Journey Through Philippine History",
+    "author": "Teresa Aguilar",
+    "scene": "a dignified historical collage of a Spanish era Philippine town, sailing boat and old map; sepia and burgundy",
+    "cover_author": "Teresa Aguilar"
+  },
+  {
+    "number": 9,
+    "file": "book-09.jpg",
+    "title": "The Secret Garden Club",
+    "author": "Camila Bautista",
+    "scene": "children discovering a lush hidden garden through a flowering arch; forest green and pink",
+    "cover_author": "Camila Bautista"
+  },
+  {
+    "number": 10,
+    "file": "book-10.jpg",
+    "title": "Poems Under the Mango Tree",
+    "author": "Amihan de Leon",
+    "scene": "a lush mango tree with ripe fruits, an open notebook beneath its shade; cream and leafy green",
+    "cover_author": "Amihan de Leon"
+  },
+  {
+    "number": 11,
+    "file": "book-11.jpg",
+    "title": "A Student Guide to Clear Writing",
+    "author": "Patricia Rivera",
+    "scene": "an elegant still life of notebooks, fountain pen, paper sheets and writing desk; ivory and royal blue",
+    "cover_author": "Patricia Rivera"
+  },
+  {
+    "number": 12,
+    "file": "book-12.jpg",
+    "title": "Discovering Geometry",
+    "author": "Daniel Alonzo",
+    "scene": "beautiful architectural composition of circles triangles and geometric solids; purple, cream and orange",
+    "cover_author": "Daniel Alonzo"
+  },
+  {
+    "number": 13,
+    "file": "book-13.jpg",
+    "title": "Oceans and Coral Reefs",
+    "author": "Nina Salcedo",
+    "scene": "an immersive vibrant underwater reef scene with sea turtle, tropical fish and coral; ocean blue and coral orange",
+    "cover_author": "Nina Salcedo"
+  },
+  {
+    "number": 14,
+    "file": "book-14.jpg",
+    "title": "The Bamboo Bridge",
+    "author": "Mateo Domingo",
+    "scene": "a graceful bamboo bridge over a Philippine river surrounded by misty forest; sage green and warm gold",
+    "cover_author": "Mateo Domingo"
+  },
+  {
+    "number": 15,
+    "file": "book-15.jpg",
+    "title": "Atlas of Imaginary Islands",
+    "author": "Lucia Serrano",
+    "scene": "a beautifully detailed fantasy map with little islands, sea creatures and compass rose; parchment gold and turquoise",
+    "cover_author": "Lucia Serrano"
+  },
+  {
+    "number": 16,
+    "file": "book-16.jpg",
+    "title": "Learning with Local Heroes",
+    "author": "Ramon Velasco",
+    "scene": "inspiring fictional Filipino community heroes, a teacher, a farmer and a firefighter; red, navy and golden cream",
+    "cover_author": "Ramon Velasco"
+  },
+  {
+    "number": 17,
+    "file": "book-17.jpg",
+    "title": "Sketchbook of a Young Artist",
+    "author": "Clara Mendoza",
+    "scene": "an expressive still life of paintbrushes, colored pencils and a sketchbook with flowers; magenta and aqua",
+    "cover_author": "Clara Mendoza"
+  },
+  {
+    "number": 18,
+    "file": "book-18.jpg",
+    "title": "The Little Book of Kindness",
+    "author": "Angela Flores",
+    "scene": "a heartwarming illustration of schoolchildren helping each other and sharing books under a tree; peach and mint green",
+    "cover_author": "Angela Flores"
+  },
+  {
+    "number": 19,
+    "file": "book-19.jpg",
+    "title": "Introduction to Programming",
+    "author": "John Smith",
+    "scene": "an elegant workstation with code windows and an open notebook, teal and cream",
+    "cover_author": null
+  },
+  {
+    "number": 20,
+    "file": "book-20.jpg",
+    "title": "Data Structures and Algorithms",
+    "author": "Jane Doe",
+    "scene": "a striking geometric network of tree nodes, linked blocks and flowing paths, navy and orange",
+    "cover_author": null
+  },
+  {
+    "number": 21,
+    "file": "book-21.jpg",
+    "title": "Machine Learning Basics",
+    "author": "Alan Turing",
+    "scene": "a sophisticated neural network visual with luminous connected nodes, purple and cyan",
+    "cover_author": null
+  },
+  {
+    "number": 22,
+    "file": "book-22.jpg",
+    "title": "Calculus for Beginners",
+    "author": "Isaac Newton",
+    "scene": "elegant curved mathematical graph lines and architectural geometry, blue and yellow",
+    "cover_author": null
+  },
+  {
+    "number": 23,
+    "file": "book-23.jpg",
+    "title": "Physics Fundamentals",
+    "author": "Albert Einstein",
+    "scene": "a prism refracting light, orbital paths and a pendulum, midnight blue and amber",
+    "cover_author": null
+  },
+  {
+    "number": 24,
+    "file": "book-24.jpg",
+    "title": "World History",
+    "author": "Herodotus",
+    "scene": "an antique world map, sailing ships and architectural silhouettes from several ancient civilizations, parchment and burgundy",
+    "cover_author": null
+  },
+  {
+    "number": 25,
+    "file": "book-25.jpg",
+    "title": "Chemistry Essentials",
+    "author": "Marie Curie",
+    "scene": "beautiful molecular models, laboratory glassware and colorful chemical liquids, teal and coral",
+    "cover_author": null
+  },
+  {
+    "number": 26,
+    "file": "book-26.jpg",
+    "title": "Biology Principles",
+    "author": "Charles Darwin",
+    "scene": "a lush botanical illustration with leaf cross sections, butterfly and DNA helix, forest green and cream",
+    "cover_author": null
+  },
+  {
+    "number": 27,
+    "file": "book-27.jpg",
+    "title": "Visual Basic 6 Guide",
+    "author": "Bill Gates",
+    "scene": "a tasteful retro computer workstation with an old visual programming interface, indigo and silver",
+    "cover_author": null
+  },
+  {
+    "number": 28,
+    "file": "book-28.jpg",
+    "title": "Flash Animation",
+    "author": "Adobe",
+    "scene": "expressive animation frames of a bouncing ball with an artists tablet and flowing ribbons, red and black",
+    "cover_author": null
+  },
+  {
+    "number": 29,
+    "file": "book-29.jpg",
+    "title": "Latin Grammar",
+    "author": "Marcus Cicero",
+    "scene": "an elegant Roman manuscript with quill, laurel leaves and classical stone columns, ivory and burgundy",
+    "cover_author": null
+  },
+  {
+    "number": 30,
+    "file": "book-30.jpg",
+    "title": "Ancient Philosophy",
+    "author": "Plato",
+    "scene": "an atmospheric ancient Greek colonnade with scrolls and olive branches, sage green and sandstone",
+    "cover_author": null
+  }
+]

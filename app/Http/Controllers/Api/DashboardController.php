@@ -119,21 +119,21 @@ class DashboardController extends Controller
             ->get();
 
         // Overdue transactions
-        $overdueTransactions = BorrowTransaction::with(['student', 'book'])
+        $overdueTransactions = BorrowTransaction::with(['student:id,name,school_id', 'book'])
             ->where('status', 'overdue')
             ->orderBy('due_date')
             ->limit(10)
             ->get();
 
         // Pending borrow requests
-        $pendingBorrows = BorrowTransaction::with(['student', 'book'])
+        $pendingBorrows = BorrowTransaction::with(['student:id,name,school_id', 'book'])
             ->where('status', 'pending')
             ->orderBy('request_date')
             ->limit(10)
             ->get();
 
         // Pending reservations
-        $pendingReservations = Reservation::with(['student', 'book'])
+        $pendingReservations = Reservation::with(['student:id,name,school_id', 'book'])
             ->where('status', 'pending')
             ->orderBy('reservation_date')
             ->limit(10)

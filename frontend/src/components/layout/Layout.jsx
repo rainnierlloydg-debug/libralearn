@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { StudentHeader, LibrarianHeader } from './Header';
 import { StudentSidebar, LibrarianSidebar } from './Sidebar';
@@ -41,7 +41,9 @@ function Layout({ role }) {
         />
         <main className={`student-main ${sidebarCollapsed ? 'is-collapsed' : ''}`}>
           <div className="student-workspace">
-            <Outlet />
+            <Suspense fallback={<div className="p-8 text-center" role="status">Loading page...</div>}>
+              <Outlet />
+            </Suspense>
           </div>
         </main>
         <LibraryAssistant role="student" />
@@ -71,7 +73,9 @@ function Layout({ role }) {
       />
       <main className={`admin-main ${sidebarCollapsed ? 'is-collapsed' : ''}`}>
         <div className="admin-workspace">
-          <Outlet />
+          <Suspense fallback={<div className="p-8 text-center" role="status">Loading page...</div>}>
+            <Outlet />
+          </Suspense>
         </div>
       </main>
       <LibraryAssistant role="librarian" />

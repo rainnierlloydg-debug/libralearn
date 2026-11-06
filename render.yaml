@@ -14,6 +14,10 @@ services:
         value: "false"
       - key: APP_KEY
         sync: false
+      - key: LIBRARY_DEMO_DATA
+        value: "true"
+      - key: LIBRARY_DEMO_PASSWORD
+        sync: false
       - key: DB_CONNECTION
         value: pgsql
       - key: DB_URL
@@ -27,13 +31,29 @@ services:
       - key: CACHE_STORE
         value: database
       - key: QUEUE_CONNECTION
-        value: sync
+        value: database
+      - key: RUN_BACKGROUND_PROCESSES
+        value: "true"
       - key: LOG_CHANNEL
         value: stderr
       - key: RUN_MIGRATIONS
-        value: "false"
+        value: "true"
       - key: LIBRARY_FORECAST_ENABLED
-        value: "false"
+        value: "true"
+      - key: LIBRARY_TIMEZONE
+        value: Asia/Manila
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_CATALOG_API_KEY
+        sync: false
+      - key: GOOGLE_BOOKS_API_KEY
+        sync: false
+      - key: GOOGLE_CLOUD_VISION_API_KEY
+        sync: false
+      - key: OPENBLAS_NUM_THREADS
+        value: "1"
+      - key: OMP_NUM_THREADS
+        value: "1"
       - key: COVERS_DISK
         value: s3
       - key: AWS_ACCESS_KEY_ID

@@ -27,7 +27,7 @@ class RepositoryForecastService
         $expectedEngine = $engine === 'statsmodels' ? 'statsmodels' : 'prophet';
 
         try {
-            $result = Process::path(base_path())->timeout(60)
+            $result = Process::path(base_path())->timeout(30)
                 ->input(json_encode(['series' => array_values($series), 'horizon' => 3], JSON_THROW_ON_ERROR))
                 ->run([config('library.forecasting.python'), base_path($workerPath)]);
 

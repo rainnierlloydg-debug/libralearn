@@ -1,7 +1,13 @@
 # libralearn
 
+For full-stack hosting with transfer of the current local records and uploads,
+see [Railway deployment](docs/railway-deployment.md).
+
+For local demo accounts and synthetic borrowing activity, see
+[demo data instructions](docs/demo-data.md).
+
 For a free demo deployment on Render with Supabase, see
-[free deployment instructions](docs/free-deployment.md).
+[Render deployment with synthetic data](docs/render-deployment.md).
 
 For chatbot and book-cover identification setup, endpoints, and examples, see
 [AI API documentation](docs/ai-api.md). Run `npm test` for backend tests and

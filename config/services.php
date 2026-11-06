@@ -6,6 +6,11 @@ if (str_starts_with($geminiModel, 'gemini-1.5-')) {
     $geminiModel = 'gemini-3.5-flash-lite';
 }
 
+$googleBooksUrl = rtrim(env('GOOGLE_BOOKS_API_URL') ?: 'https://www.googleapis.com/books/v1/volumes', '/');
+if (str_ends_with($googleBooksUrl, '/books/v1')) {
+    $googleBooksUrl .= '/volumes';
+}
+
 return [
 
     /*
@@ -60,7 +65,7 @@ return [
 
     'google_books' => [
         'api_key' => env('GOOGLE_BOOKS_API_KEY'),
-        'api_url' => env('GOOGLE_BOOKS_API_URL', 'https://www.googleapis.com/books/v1/volumes'),
+        'api_url' => $googleBooksUrl,
     ],
 
 ];

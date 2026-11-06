@@ -8,6 +8,14 @@ borrowed titles, copy recommendations, and titles with no requests. Select a
 weekly or monthly reporting period. Refresh recalculates the selected period;
 otherwise results are cached for the configured interval (30 minutes by default).
 
+Charts and the local baseline forecast load immediately. Python model fitting
+and AI narration run on the `analytics` queue so page navigation stays responsive.
+Keep a worker running with `php artisan queue:work --queue=analytics,default --tries=1 --timeout=80`
+(included in `composer dev`). The page checks for completed results while open
+and cancels its requests when you leave. Without an asynchronous queue, it serves
+the baseline forecast and rule-based briefing. Existing baseline charts remain
+usable if the worker is unavailable.
+
 ## Demand predictions
 
 The chart compares recent recorded demand with up to three projected months.

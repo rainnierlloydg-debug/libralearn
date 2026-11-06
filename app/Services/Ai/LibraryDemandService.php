@@ -36,7 +36,7 @@ class LibraryDemandService
     /** Reservation statuses still waiting for a copy. */
     private const OPEN_RESERVATION_STATUSES = ['pending', 'approved', 'ready_for_pickup'];
 
-    public function analyze(int $months = 6, ?CarbonInterface $now = null, ?int $days = null): array
+    public function analyze(int $months = 6, ?CarbonInterface $now = null, ?int $days = null, bool $withModels = true): array
     {
         if ($days !== null && !in_array($days, [7, 14, 30], true)) {
             throw new \InvalidArgumentException('Short insight windows must be 7, 14, or 30 days.');
@@ -79,7 +79,7 @@ class LibraryDemandService
         })->filter()->values();
 
         $monthlyTotals = $this->monthlyTotals($events, $monthKeys, $currentKey);
-        $predictions = $this->predictionOutlook($monthlyTotals['complete'], $currentMonthStart, $days === null);
+        $predictions = $this->predictionOutlook($monthlyTotals['complete'], $currentMonthStart, $days === null, $withModels);
         $totalForecast = $predictions['available']
             ? $this->forecast(array_slice(array_column($monthlyTotals['complete'], 'demand'), -$predictions['history_months']))
             : ['value' => 0.0, 'trend' => 'insufficient_data'];
@@ -224,7 +224,7 @@ class LibraryDemandService
     }
 
     /** Rolling projections and checks against months withheld from the forecast. */
-    private function predictionOutlook(array $monthly, CarbonInterface $start, bool $enabled): array
+    private function predictionOutlook(array $monthly, CarbonInterface $start, bool $enabled, bool $withModels): array
     {
         $series = array_column($monthly, 'demand');
         $firstActivity = null;
@@ -285,7 +285,10 @@ class LibraryDemandService
                 : 'Prophet needs at least 6 complete months.')
                 . ' Select a longer period as more history becomes available.'
             : null;
-        if ($available && $historyMonths >= $minHistoryForEngine) {
+        if ($available && $historyMonths >= $minHistoryForEngine && !$withModels) {
+            $fallback = 'Showing the baseline forecast while background model results are unavailable.';
+        }
+        if ($available && $historyMonths >= $minHistoryForEngine && $withModels) {
             $modeled = app(RepositoryForecastService::class)->predictWithFallback($observed);
             if ($modeled) {
                 $engine = $modeled['engine'];

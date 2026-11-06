@@ -11,6 +11,10 @@
 */
 
 return [
+    'demo' => [
+        'enabled' => (bool) env('LIBRARY_DEMO_DATA', false),
+        'password' => env('LIBRARY_DEMO_PASSWORD'),
+    ],
     'forecasting' => [
         'enabled' => env('LIBRARY_FORECAST_ENABLED') !== false && env('LIBRARY_FORECAST_ENABLED') !== '0',
         'engine' => env('LIBRARY_FORECAST_ENGINE', 'prophet'), // 'prophet' or 'statsmodels'

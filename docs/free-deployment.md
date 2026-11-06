@@ -2,7 +2,9 @@
 
 Deploy the React frontend and Laravel API together on Render Free, using
 Supabase Free for PostgreSQL and uploaded cover images. Vercel is not required.
-This deploys code into a new database; it does not transfer local users or books.
+This deploys code and synthetic demonstration data into a dedicated database;
+it does not transfer local users or books. See the current
+[Render deployment guide](render-deployment.md) for required secrets and live API checks.
 
 ## 1. Create the database and upload bucket
 
@@ -40,7 +42,9 @@ same key across redeploys. Never copy the local `.env` into the image.
 For a **new, empty Supabase database**, set `RUN_MIGRATIONS=true` in Render and
 deploy the service. For an existing database, back it up and review the pending
 migrations before enabling this switch. Startup runs `migrate --force`, never
-`migrate:fresh` and never the demo or cleanup seeders. After the first successful
+`migrate:fresh`. With `LIBRARY_DEMO_DATA=true`, it then runs the additive
+`SyntheticDemoSeeder --force`, requiring a `LIBRARY_DEMO_PASSWORD` of at least
+12 characters. It does not run `DatabaseSeeder` or cleanup seeders. After the first successful
 deployment, set `RUN_MIGRATIONS=false`. Enable it again only for reviewed schema
 updates. Automatic deployments are disabled in the blueprint.
 
@@ -48,8 +52,13 @@ Render supplies `RENDER_EXTERNAL_URL`; startup uses it for Laravel's `APP_URL`.
 Open the returned HTTPS address and check `/up`, the home page, registration,
 login, and cover uploads. A healthy `/up` alone does not verify the database or S3.
 
-The new database has no librarian account. After registering your own account,
-an administrator can use Supabase's SQL editor to promote that specific account:
+The synthetic dataset includes `admin@demo.example` for the staff login and
+`student01@demo.example` through `student24@demo.example` for student login.
+New accounts use `LIBRARY_DEMO_PASSWORD`; existing passwords are preserved.
+
+If deploying without synthetic data, the new database has no librarian account.
+After registering your own account, an administrator can use Supabase's SQL
+editor to promote that specific account:
 
 ```sql
 UPDATE public.users
@@ -68,8 +77,10 @@ Seed reference data only after reviewing the individual seeders. Do not run
   this setup does not provision one.
 - [Supabase Free](https://supabase.com/pricing) includes a 500 MB database and
   1 GB file storage, with usage limits; projects pause after a week of inactivity.
-- Python forecasting is disabled in this small PHP image. Core library features
-  remain available, but the repository's Python forecast engine is not installed.
+- Python forecasting is installed and enabled. A supervised queue worker handles
+  insights in the background. The scheduler also runs inside the container, but
+  both stop while Render Free sleeps; exact-time reminders require always-on hosting.
+  Validate memory use for the combined web and Python processes on the selected plan.
 - External AI providers are optional and can charge independently. No paid AI
   keys are provisioned. Configure provider keys only if you intend to use them.
 - Email defaults to logging. Configure an email provider if you need delivery.
