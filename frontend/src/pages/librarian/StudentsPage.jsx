@@ -1,6 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Search, UserPlus, Edit, Trash2, MoreVertical, Eye, Clock, Bookmark, BookOpen, RotateCcw, Filter, X, AlertCircle } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import { useState, useEffect, useCallback } from 'react';
+import { Search, UserPlus, Edit, Trash2, Eye, Filter, X, AlertCircle } from 'lucide-react';
 import api from '../../utils/api';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
@@ -10,9 +9,10 @@ import Modal from '../../components/ui/Modal';
 import Select from '../../components/ui/Select';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { formatDate } from '../../utils/helpers';
+import './students.css';
 
 function StudentsPage() {
-  const { user } = useAuth();
+
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
@@ -52,11 +52,7 @@ function StudentsPage() {
     'STEM-A', 'STEM-B', 'ABM-A', 'ABM-B', 'HUMSS-A', 'HUMSS-B', 'GAS-A', 'GAS-B',
   ];
 
-  useEffect(() => {
-    fetchStudents();
-  }, [page, searchQuery, filters]);
-
-  const fetchStudents = async () => {
+  const fetchStudents = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams({
@@ -77,7 +73,15 @@ function StudentsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, searchQuery, filters]);
+
+  useEffect(() => {
+    // Defer network setup and cancel it if this view changes before it starts.
+    const timer = setTimeout(() => {
+      fetchStudents();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchStudents]);
 
   const handleSearch = (e) => {
     setSearchQuery(e.target.value);
@@ -127,7 +131,7 @@ function StudentsPage() {
       if (response.data.success) {
         setViewingStudent(response.data.data);
       }
-    } catch (err) {
+    } catch {
       alert('Failed to load student details');
     }
   };
@@ -215,8 +219,17 @@ function StudentsPage() {
       await api.delete(`/users/${studentId}`);
       setStudents((prev) => prev.filter((s) => s.id !== studentId));
       setTotal((prev) => prev - 1);
-    } catch (err) {
+    } catch {
       alert('Failed to delete student');
+    }
+  };
+
+  const handleApproval = async (student, action) => {
+    try {
+      const response = await api.post(`/users/${student.id}/${action}`);
+      setStudents((prev) => prev.map((s) => (s.id === student.id ? { ...s, status: response.data.data.status } : s)));
+    } catch (err) {
+      alert(err.response?.data?.message || `Failed to ${action} student`);
     }
   };
 
@@ -226,7 +239,7 @@ function StudentsPage() {
       setStudents((prev) => prev.map((s) =>
         s.id === student.id ? { ...s, status: s.status === 'active' ? 'inactive' : 'active' } : s
       ));
-    } catch (err) {
+    } catch {
       alert('Failed to update status');
     }
   };
@@ -247,7 +260,7 @@ function StudentsPage() {
 
   return (
     <div className="admin-students-page space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="students-heading flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-heading font-bold text-[var(--text)]">Student Management</h1>
           <p className="text-[var(--text-muted)]">Manage student accounts and view details</p>
@@ -258,11 +271,12 @@ function StudentsPage() {
       {/* Search and filters */}
       <Card className="admin-filter-panel p-4">
         <form onSubmit={handleSearchSubmit} className="space-y-4">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1 relative">
+          <div className="students-search-row">
+            <div className="students-search-field">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--text-faint)]" />
               <input
                 type="search"
+                aria-label="Search students by name, school ID, or email"
                 value={searchQuery}
                 onChange={handleSearch}
                 placeholder="Search by name, school ID, or email..."
@@ -270,7 +284,7 @@ function StudentsPage() {
               />
             </div>
             <Button type="submit" variant="primary"><Search className="w-4 h-4" /> Search</Button>
-            <Button variant="secondary" onClick={() => setShowFilters(!showFilters)}>
+            <Button variant="secondary" aria-expanded={showFilters} aria-controls="student-filters" onClick={() => setShowFilters(!showFilters)}>
               <Filter className="w-4 h-4 mr-1" />
               Filters {hasActiveFilters && <Badge variant="primary" className="ml-1">{Object.values(filters).filter(v => v).length}</Badge>}
             </Button>
@@ -300,6 +314,8 @@ function StudentsPage() {
                   options={[
                     { value: '', label: 'All Statuses' },
                     { value: 'active', label: 'Active' },
+                    { value: 'pending', label: 'Pending' },
+                    { value: 'rejected', label: 'Rejected' },
                     { value: 'inactive', label: 'Inactive' },
                   ]}
                   value={filters.status}
@@ -326,8 +342,9 @@ function StudentsPage() {
           </div>
           <span>{students.length} shown</span>
         </div>
-        <div className="admin-table-scroll overflow-x-auto">
-          <table className="w-full">
+        <div className="admin-table-scroll overflow-x-auto" role="region" aria-label="Student directory" tabIndex={0}>
+          <table className="students-table w-full">
+            <caption className="sr-only">Student accounts, borrowing activity, and account actions</caption>
             <thead>
               <tr className="border-b-[var(--border)]">
                 <th className="px-4 py-3 text-left text-sm font-semibold text-[var(--text-muted)]">Student</th>
@@ -351,10 +368,10 @@ function StudentsPage() {
                   <tr key={student.id} className="border-b-[var(--border)] hover:bg-[var(--surface-2)]">
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-[var(--surface-2)] flex items-center justify-center text-sm font-medium text-[var(--text-muted)]">
+                        <div className="students-avatar w-10 h-10 rounded-full bg-[var(--surface-2)] flex items-center justify-center text-sm font-medium text-[var(--text-muted)]">
                           {student.name?.charAt(0)?.toUpperCase()}
                         </div>
-                        <div>
+                        <div className="students-identity">
                           <p className="font-medium text-[var(--text)]">{student.name}</p>
                           <p className="text-sm text-[var(--text-muted)]">{student.school_id} • {student.email}</p>
                         </div>
@@ -365,7 +382,7 @@ function StudentsPage() {
                       <p className="text-xs text-[var(--text-muted)]">{student.section}</p>
                     </td>
                     <td className="px-4 py-4">
-                      <Badge variant={student.status === 'active' ? 'success' : 'danger'}>
+                      <Badge className="students-status" variant={student.status === 'active' ? 'success' : student.status === 'pending' ? 'warning' : 'danger'}>
                         {student.status}
                       </Badge>
                     </td>
@@ -384,19 +401,25 @@ function StudentsPage() {
                     </td>
                     <td className="px-4 py-4">
                       <div className="admin-student-actions flex items-center gap-2">
+                        {student.status === 'pending' && (
+                          <>
+                            <Button size="sm" onClick={() => handleApproval(student, 'approve')}>Approve</Button>
+                            <Button size="sm" variant="secondary" onClick={() => handleApproval(student, 'reject')}>Reject</Button>
+                          </>
+                        )}
                         <Button variant="ghost" size="sm" aria-label="View student details" title="View details" onClick={() => openViewModal(student.id)}>
                           <Eye className="w-4 h-4" />
                         </Button>
                         <Button variant="ghost" size="sm" aria-label="Edit student" title="Edit student" onClick={() => openEditModal(student)}>
                           <Edit className="w-4 h-4" />
                         </Button>
-                        <Button variant="ghost" size="sm" aria-label={student.status === 'active' ? 'Deactivate student' : 'Activate student'} title={student.status === 'active' ? 'Deactivate student' : 'Activate student'} onClick={() => handleStatusToggle(student)}>
+                        {['active', 'inactive'].includes(student.status) && (<Button variant="ghost" size="sm" aria-label={student.status === 'active' ? 'Deactivate student' : 'Activate student'} title={student.status === 'active' ? 'Deactivate student' : 'Activate student'} onClick={() => handleStatusToggle(student)}>
                           {student.status === 'active' ? (
                             <AlertCircle className="w-4 h-4 text-yellow-600" />
                           ) : (
                             <CheckCircle className="w-4 h-4 text-green-600" />
                           )}
-                        </Button>
+                        </Button>)}
                         <Button variant="ghost" size="sm" aria-label="Delete student" title="Delete student" onClick={() => handleDelete(student.id)} className="text-red-500 hover:bg-red-50">
                           <Trash2 className="w-4 h-4" />
                         </Button>
@@ -411,7 +434,7 @@ function StudentsPage() {
 
         {/* Pagination */}
         {total > 20 && (
-          <div className="px-4 py-4 border-t-[var(--border)] flex items-center justify-center gap-2">
+          <div className="students-pagination px-4 py-4 border-t-[var(--border)] flex items-center justify-center gap-2">
             <Button variant="secondary" size="sm" onClick={() => setPage(page - 1)} disabled={page === 1}>
               Previous
             </Button>
@@ -424,14 +447,14 @@ function StudentsPage() {
       </Card>
 
       {/* Add/Edit Modal */}
-      <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title={editingStudent ? 'Edit Student' : 'Add New Student'} size="lg">
-        <form onSubmit={handleSubmit} className="space-y-4">
+      <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title={editingStudent ? 'Edit Student' : 'Add New Student'} size="lg" className="student-editor-modal">
+        <form onSubmit={handleSubmit} className="student-editor-form">
           <Input label="Full Name *" name="name" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} error={errors.name} required />
           <Input label="School ID *" name="school_id" value={formData.school_id} onChange={(e) => setFormData({...formData, school_id: e.target.value})} error={errors.school_id} required />
           <Input label="Email *" type="email" name="email" value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} error={errors.email} required />
           {editingStudent ? (
             <>
-              <Input label="New Password (leave blank to keep current)" type="password" name="password" value={formData.password} onChange={(e) => setFormData({...formData, password: e.target.value})} error={errors.password} />
+              <Input label="New Password" helperText="Leave blank to keep the current password." type="password" name="password" value={formData.password} onChange={(e) => setFormData({...formData, password: e.target.value})} error={errors.password} />
               <Input label="Confirm New Password" type="password" name="confirm_password" value={formData.confirm_password} onChange={(e) => setFormData({...formData, confirm_password: e.target.value})} error={errors.confirm_password} />
             </>
           ) : (
@@ -440,7 +463,7 @@ function StudentsPage() {
               <Input label="Confirm Password *" type="password" name="confirm_password" value={formData.confirm_password} onChange={(e) => setFormData({...formData, confirm_password: e.target.value})} error={errors.confirm_password} required />
             </>
           )}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="student-editor-academic grid grid-cols-2 gap-4">
             <Select label="Grade Level *" options={[{ value: '', label: 'Select Grade' }, ...GRADE_LEVELS.map(g => ({ value: g, label: g }))]} value={formData.grade_level} onChange={(e) => setFormData({...formData, grade_level: e.target.value})} error={errors.grade_level} required />
             <Select label="Section *" options={[{ value: '', label: 'Select Section' }, ...SECTIONS.map(s => ({ value: s, label: s }))]} value={formData.section} onChange={(e) => setFormData({...formData, section: e.target.value})} error={errors.section} required />
           </div>
@@ -449,7 +472,7 @@ function StudentsPage() {
             { value: 'inactive', label: 'Inactive' },
           ]} value={formData.status} onChange={(e) => setFormData({...formData, status: e.target.value})} />
           {errors.general && <p className="text-red-600 text-sm">{errors.general}</p>}
-          <div className="flex justify-end gap-2 pt-4 border-t-[var(--border)]">
+          <div className="student-editor-actions flex justify-end gap-2 pt-4 border-t-[var(--border)]">
             <Button type="button" variant="secondary" onClick={() => setShowAddModal(false)}>Cancel</Button>
             <Button type="submit" loading={saving}>{editingStudent ? 'Update' : 'Add'} Student</Button>
           </div>

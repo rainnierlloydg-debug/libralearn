@@ -99,6 +99,22 @@ return [
             'sslmode' => env('DB_SSLMODE', 'prefer'),
         ],
 
+        // Local PostgreSQL test database (phpunit.pgsql.xml). Reads PG_* so
+        // the app can keep running on MySQL locally.
+        'pgsql_testing' => [
+            'driver' => 'pgsql',
+            'host' => env('PG_HOST', '127.0.0.1'),
+            'port' => env('PG_PORT', '5432'),
+            'database' => env('PG_TEST_DATABASE', 'libralearn_test'),
+            'username' => env('PG_USERNAME', 'postgres'),
+            'password' => env('PG_PASSWORD', ''),
+            'charset' => 'utf8',
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'search_path' => 'public',
+            'sslmode' => 'prefer',
+        ],
+
         'sqlsrv' => [
             'driver' => 'sqlsrv',
             'url' => env('DB_URL'),

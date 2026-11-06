@@ -1,21 +1,33 @@
-import { useState, useEffect } from 'react';
-import { Search, Filter, CheckCircle, X, Calendar, Bookmark, MoreVertical, Eye, AlertCircle, X as XIcon } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import useNow from '../../utils/useNow';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Search, CheckCircle, X, Calendar, Bookmark, Clock, AlertCircle, RotateCcw, Inbox, ChevronLeft, ChevronRight } from 'lucide-react';
 import api from '../../utils/api';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
+import Modal from '../../components/ui/Modal';
+import { useToast } from '../../contexts/useToast';
+import './borrowing.css';
+import './reservations.css';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { formatDate } from '../../utils/helpers';
 
 function ReservationsPage() {
-  const { user } = useAuth();
+  const now = useNow();
+
   const [reservations, setReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [error, setError] = useState('');
+  const [dialog, setDialog] = useState(null);
+  const [pickupDays, setPickupDays] = useState('3');
+  const [reason, setReason] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
+  const requestId = useRef(0);
+  const toast = useToast();
 
   const statusOptions = [
     { value: '', label: 'All Statuses' },
@@ -45,238 +57,153 @@ function ReservationsPage() {
     expired: 'Expired',
   };
 
-  useEffect(() => {
-    fetchReservations();
-  }, [page, searchQuery, statusFilter]);
-
-  const fetchReservations = async () => {
+  const fetchReservations = useCallback(async () => {
+    const currentRequest = ++requestId.current;
     setLoading(true);
+    setError('');
     try {
-      const params = new URLSearchParams({
-        page,
-        per_page: 20,
-      });
-      if (searchQuery) params.append('search', searchQuery);
+      const params = new URLSearchParams({ page, per_page: 20 });
+      if (searchQuery.trim()) params.append('search', searchQuery.trim());
       if (statusFilter) params.append('status', statusFilter);
       const response = await api.get(`/reservations?${params.toString()}`);
-      if (response.data.success) {
-        setReservations(response.data.data.data);
-        setTotal(response.data.data.total);
+      if (currentRequest !== requestId.current) return;
+      if (!response.data.success) throw new Error('Unable to load reservations');
+      setReservations(response.data.data.data);
+      setTotal(response.data.data.total);
+    } catch (err) {
+      if (currentRequest === requestId.current) setError(err.response?.data?.message || 'Unable to load reservations. Please try again.');
+    } finally {
+      if (currentRequest === requestId.current) setLoading(false);
+    }
+  }, [page, searchQuery, statusFilter]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => { fetchReservations(); }, 250);
+    return () => { clearTimeout(timer); requestId.current += 1; };
+  }, [fetchReservations]);
+
+  const applyStatus = (value) => {
+    if (statusFilter === value && page === 1) return;
+    setLoading(true);
+    setStatusFilter(value);
+    setPage(1);
+  };
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setStatusFilter('');
+    setPage(1);
+  };
+
+  const openAction = (kind, reservation = null) => {
+    setPickupDays('3');
+    setReason('');
+    setDialog({ kind, reservation });
+  };
+
+  const submitAction = async (event) => {
+    event.preventDefault();
+    if (!dialog || actionLoading) return;
+    setActionLoading(true);
+    try {
+      const { kind, reservation } = dialog;
+      const url = kind === 'expire-old' ? '/reservations/expire-old' : `/reservations/${reservation.id}/${kind}`;
+      const payload = kind === 'approve' ? { pickup_deadline_days: Number(pickupDays) } : kind === 'reject' ? { reason } : {};
+      const response = await api.post(url, payload);
+      if (!response.data.success) throw new Error('Unable to update reservation');
+      toast.success(response.data.message || 'Reservation updated.');
+      setDialog(null);
+      if (page > 1) {
+        setLoading(true);
+        setPage(1);
+      } else {
+        await fetchReservations();
       }
     } catch (err) {
-      console.error('Failed to fetch reservations:', err);
+      toast.error(err.response?.data?.message || 'Unable to update reservations. Please try again.');
     } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleApprove = async (id) => {
-    const days = prompt('Pickup deadline (days, default 3):', '3');
-    if (days === null) return;
-    const pickupDays = parseInt(days) || 3;
-    if (pickupDays < 1 || pickupDays > 14) {
-      alert('Pickup deadline must be between 1 and 14 days');
-      return;
-    }
-    try {
-      await api.post(`/reservations/${id}/approve`, { pickup_deadline_days: pickupDays });
-      fetchReservations();
-    } catch (err) {
-      alert(err.response?.data?.message || 'Failed to approve');
-    }
-  };
-
-  const handleReject = async (id) => {
-    const reason = prompt('Enter rejection reason (optional):');
-    if (reason === null) return;
-    try {
-      await api.post(`/reservations/${id}/reject`, { reason });
-      fetchReservations();
-    } catch (err) {
-      alert(err.response?.data?.message || 'Failed to reject');
-    }
-  };
-
-  const handleComplete = async (id) => {
-    if (!confirm('Complete this reservation? The book will be marked as borrowed.')) return;
-    try {
-      await api.post(`/reservations/${id}/complete`);
-      fetchReservations();
-    } catch (err) {
-      alert(err.response?.data?.message || 'Failed to complete');
-    }
-  };
-
-  const handleExpireOld = async () => {
-    if (!confirm('Expire all reservations past their pickup deadline?')) return;
-    try {
-      await api.post('/reservations/expire-old');
-      fetchReservations();
-    } catch (err) {
-      alert(err.response?.data?.message || 'Failed to expire reservations');
+      setActionLoading(false);
     }
   };
 
   const renderReservationRow = (r) => {
-    const isExpired = r.status === 'ready_for_pickup' && r.pickup_deadline && new Date(r.pickup_deadline) < new Date();
-
+    const deadlinePassed = r.status === 'ready_for_pickup' && r.pickup_deadline && new Date(r.pickup_deadline) < new Date(now);
     return (
-      <tr key={r.id} className={`border-b-[var(--border)] ${isExpired ? 'bg-red-50 dark:bg-red-900/10' : ''}`}>
-        <td className="px-4 py-4">
-          <div>
-            <p className="font-medium text-[var(--text)]">{r.student.name}</p>
-            <p className="text-sm text-[var(--text-muted)]">{r.student.school_id}</p>
-          </div>
-        </td>
-        <td className="px-4 py-4">
-          <p className="font-medium text-[var(--text)] truncate max-w-xs">{r.book.title}</p>
-          <p className="text-sm text-[var(--text-muted)] truncate max-w-xs">{r.book.author}</p>
-        </td>
-        <td className="px-4 py-4 text-sm text-[var(--text-muted)]">
-          {r.reservation_date ? formatDate(r.reservation_date) : 'N/A'}
-        </td>
-        <td className="px-4 py-4 text-sm text-[var(--text-muted)]">
-          {r.pickup_deadline ? (
-            <>
-              <p className={isExpired ? 'text-red-600 font-medium' : 'text-[var(--text)]'}>
-                {formatDate(r.pickup_deadline)}
-              </p>
-              {isExpired && (
-                <p className="text-xs text-red-600">EXPIRED</p>
-              )}
-            </>
-          ) : (
-            <span className="text-[var(--text-muted)]">Not set</span>
-          )}
-        </td>
-        <td className="px-4 py-4">
-          <Badge variant={statusColors[r.status] || 'info'}>
-            {statusLabels[r.status] || r.status}
-          </Badge>
-        </td>
-        <td className="px-4 py-4">
-          <div className="flex items-center gap-1">
-            {r.status === 'pending' && (
-              <div className="flex items-center gap-1">
-                <Button variant="primary" size="sm" onClick={() => handleApprove(r.id)}>
-                  <CheckCircle className="w-3.5 h-3.5" />
-                  Approve
-                </Button>
-                <Button variant="danger" size="sm" onClick={() => handleReject(r.id)}>
-                  <X className="w-3.5 h-3.5" />
-                  Reject
-                </Button>
-              </div>
-            )}
-            {r.status === 'ready_for_pickup' && !isExpired && (
-              <Button variant="success" size="sm" onClick={() => handleComplete(r.id)}>
-                <Bookmark className="w-3.5 h-3.5" />
-                Complete
-              </Button>
-            )}
-            {isExpired && (
-              <Badge variant="danger" className="text-xs">Expired</Badge>
-            )}
-          </div>
-        </td>
+      <tr key={r.id} className={deadlinePassed ? 'borrowing-row-overdue' : ''}>
+        <td><p className="borrowing-cell-title">{r.student.name}</p><p>{r.student.school_id}</p></td>
+        <td><p className="borrowing-cell-title borrowing-book-title" title={r.book.title}>{r.book.title}</p><p>{r.book.author}</p></td>
+        <td>{r.reservation_date ? formatDate(r.reservation_date) : 'Not available'}</td>
+        <td>{r.pickup_deadline ? <><p className={deadlinePassed ? 'borrowing-overdue-text' : ''}>{formatDate(r.pickup_deadline)}</p>{deadlinePassed && <p className="borrowing-overdue-text borrowing-overdue-days">Pickup deadline passed</p>}</> : <span className="reservation-no-deadline">Not set</span>}</td>
+        <td><Badge variant={statusColors[r.status] || 'info'} className={`borrowing-status status-${r.status}`}>{statusLabels[r.status] || r.status}</Badge></td>
+        <td><div className="borrowing-row-actions">
+          {r.status === 'pending' && <>
+            <Button size="sm" onClick={() => openAction('approve', r)} disabled={actionLoading || loading}><CheckCircle size={15} /> Approve</Button>
+            <Button variant="danger" size="sm" onClick={() => openAction('reject', r)} disabled={actionLoading || loading}><X size={15} /> Reject</Button>
+          </>}
+          {r.status === 'ready_for_pickup' && !deadlinePassed && <Button size="sm" onClick={() => openAction('complete', r)} disabled={actionLoading || loading}><Bookmark size={15} /> Confirm pickup</Button>}
+          {deadlinePassed && <span className="reservation-deadline-hint"><AlertCircle size={14} /> Awaiting expiry</span>}
+          {r.status === 'approved' && <span className="borrowing-no-action">Awaiting pickup readiness</span>}
+          {['completed', 'cancelled', 'expired'].includes(r.status) && <span className="borrowing-no-action">No action needed</span>}
+        </div></td>
       </tr>
     );
   };
 
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-heading font-bold text-[var(--text)]">Reservations Management</h1>
-          <Button onClick={handleExpireOld} variant="ghost" size="sm">
-            <Calendar className="w-4 h-4 mr-1" />
-            Expire Old
-          </Button>
-        </div>
-        <div className="space-y-3">
-          {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-20" />)}
-        </div>
-      </div>
-    );
-  }
+  const dialogTitles = { approve: 'Approve reservation', reject: 'Reject reservation', complete: 'Confirm book pickup', 'expire-old': 'Expire overdue reservations' };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-heading font-bold text-[var(--text)]">Reservations Management</h1>
-          <p className="text-[var(--text-muted)]">Manage book reservations and pickup approvals</p>
-        </div>
-        <Button onClick={handleExpireOld} variant="ghost" size="sm">
-          <Calendar className="w-4 h-4 mr-1" />
-          Expire Old
-        </Button>
+    <div className="borrowing-page reservations-page">
+      <div className="borrowing-heading">
+        <div><h1>Reservations Management</h1><p>Manage book reservations and pickup approvals.</p></div>
+        <Button variant="secondary" onClick={() => openAction('expire-old')} disabled={actionLoading}><Calendar size={17} /> Expire overdue reservations</Button>
       </div>
-
-      <Card className="p-4">
-        <form className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--text-faint)]" />
-            <input
-              type="search"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && setPage(1)}
-              placeholder="Search by student name, school ID, or book title..."
-              className="input pl-12"
-            />
+      <Card className="borrowing-filters-card">
+        <div className="borrowing-quick-filters" role="group" aria-label="Quick reservation filters">
+          {[['', 'All reservations', Bookmark], ['pending', 'Pending approval', Clock], ['ready_for_pickup', 'Ready for pickup', CheckCircle], ['completed', 'Completed', Calendar]].map(([value, label, Icon]) =>
+            <button type="button" key={value} aria-pressed={statusFilter === value} className={statusFilter === value ? 'is-active' : ''} onClick={() => applyStatus(value)}><Icon size={16} />{label}</button>
+          )}
+        </div>
+        <form className="borrowing-search-form" onSubmit={(event) => { event.preventDefault(); setPage(1); }}>
+          <div className="borrowing-search-field">
+            <label htmlFor="reservation-search">Search reservations</label>
+            <div className="borrowing-search-input"><Search size={18} aria-hidden="true" />
+              <input id="reservation-search" type="search" className="input" value={searchQuery} onChange={(event) => { setSearchQuery(event.target.value); setPage(1); }} placeholder="Search by student name, school ID, or book title…" />
+            </div>
           </div>
-          <select
-            value={statusFilter}
-            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-            className="input w-auto min-w-[200px]"
-          >
-            {statusOptions.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
+          <div className="borrowing-status-field"><label htmlFor="reservation-status">Status</label>
+            <select id="reservation-status" className="input" value={statusFilter} onChange={(event) => applyStatus(event.target.value)}>{statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
+          </div>
+          {(searchQuery || statusFilter) && <Button variant="secondary" onClick={clearFilters}><X size={15} /> Clear filters</Button>}
         </form>
       </Card>
-
-      <Card>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b-[var(--border)]">
-                <th className="px-4 py-3 text-left text-sm font-semibold text-[var(--text-muted)]">Student</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-[var(--text-muted)]">Book</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-[var(--text-muted)]">Reservation Date</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-[var(--text-muted)]">Pickup Deadline</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-[var(--text-muted)]">Status</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-[var(--text-muted)]">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {reservations.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-[var(--text-muted)]">
-                    No reservations found
-                  </td>
-                </tr>
-              ) : (
-                reservations.map((r) => renderReservationRow(r))
-              )}
-            </tbody>
+      <Card className="borrowing-table-card">
+        <div className="borrowing-table-heading"><div><h2>Reservation requests</h2><p>{loading ? 'Loading reservations…' : error ? 'Reservations temporarily unavailable' : `${total} matching reservation${total === 1 ? '' : 's'}`}</p></div><span>Latest requests first</span></div>
+        {error && <div className="borrowing-error" role="alert"><AlertCircle size={18} /><p>{error}</p><Button variant="secondary" onClick={fetchReservations}><RotateCcw size={15} /> Try again</Button></div>}
+        <div className="borrowing-table-scroll" role="region" aria-label="Reservation requests" tabIndex={0} aria-busy={loading}>
+          <table className="borrowing-table">
+            <caption className="sr-only">Student book reservations, pickup deadlines, status, and available actions</caption>
+            <thead><tr>{['Student', 'Book', 'Reservation date', 'Pickup deadline', 'Status', 'Actions'].map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead>
+            <tbody>{loading ? <tr><td colSpan={6}><div className="borrowing-loading" role="status" aria-label="Loading reservations">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-16" />)}</div></td></tr> : error ? null : reservations.length === 0 ?
+              <tr><td colSpan={6}><div className="borrowing-empty"><Inbox size={32} /><h3>No reservations found</h3><p>{searchQuery || statusFilter ? 'Try another search or clear your filters.' : 'New reservation requests will appear here.'}</p>{(searchQuery || statusFilter) && <Button variant="secondary" onClick={clearFilters}>Clear filters</Button>}</div></td></tr>
+              : reservations.map(renderReservationRow)}</tbody>
           </table>
         </div>
-
-        {total > 20 && (
-          <div className="px-4 py-4 border-t-[var(--border)] flex items-center justify-center gap-2">
-            <Button variant="secondary" size="sm" onClick={() => setPage(page - 1)} disabled={page === 1}>
-              Previous
-            </Button>
-            <span className="px-4 text-[var(--text-muted)]">Page {page} of {Math.ceil(total / 20)}</span>
-            <Button variant="secondary" size="sm" onClick={() => setPage(page + 1)} disabled={page >= Math.ceil(total / 20)}>
-              Next
-            </Button>
-          </div>
-        )}
+        {!error && total > 20 && <div className="borrowing-pagination"><span>Showing {(page - 1) * 20 + 1}–{Math.min(page * 20, total)} of {total}</span><div>
+          <Button size="sm" variant="secondary" onClick={() => setPage(page - 1)} disabled={loading || page === 1}><ChevronLeft size={16} /> Previous</Button>
+          <span aria-live="polite">Page {page} of {Math.ceil(total / 20)}</span>
+          <Button size="sm" variant="secondary" onClick={() => setPage(page + 1)} disabled={loading || page >= Math.ceil(total / 20)}>Next <ChevronRight size={16} /></Button>
+        </div></div>}
       </Card>
+      <Modal isOpen={!!dialog} title={dialogTitles[dialog?.kind]} className="borrowing-action-modal" onClose={() => { if (!actionLoading) setDialog(null); }}>
+        {dialog && <form onSubmit={submitAction}>
+          {dialog.reservation && <div className="borrowing-dialog-context"><Bookmark size={21} /><div><strong>{dialog.reservation.book.title}</strong><p>{dialog.reservation.student.name} · {dialog.reservation.student.school_id}</p></div></div>}
+          {dialog.kind === 'approve' && <div className="borrowing-dialog-field"><label htmlFor="reservation-pickup-days">Pickup window (days)</label><input id="reservation-pickup-days" type="number" className="input" min="1" max="14" step="1" required value={pickupDays} onChange={(event) => setPickupDays(event.target.value)} disabled={actionLoading} /><p>Choose 1–14 days. Approval holds an available copy and notifies the student that it is ready for pickup.</p></div>}
+          {dialog.kind === 'reject' && <div className="borrowing-dialog-field"><label htmlFor="reservation-reason">Reason <span>(optional)</span></label><textarea id="reservation-reason" className="input" maxLength={500} rows={3} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Explain why this request is being declined…" disabled={actionLoading} /><p>The student will receive a notification about this decision.</p></div>}
+          {dialog.kind === 'complete' && <p className="borrowing-dialog-help">Confirm that the student has collected this book. This completes the reservation and starts a borrowing transaction.</p>}
+          {dialog.kind === 'expire-old' && <div className="reservation-expire-notice"><AlertCircle size={22} /><p>Expire all reservations that are ready for pickup and past their pickup deadline. Their held copies will be released.</p></div>}
+          <div className="borrowing-dialog-actions"><Button variant="secondary" disabled={actionLoading} onClick={() => setDialog(null)}>Cancel</Button><Button type="submit" loading={actionLoading} variant={['reject', 'expire-old'].includes(dialog.kind) ? 'danger' : 'primary'}>{ { approve: 'Approve reservation', reject: 'Reject reservation', complete: 'Confirm pickup', 'expire-old': 'Expire overdue reservations' }[dialog.kind] }</Button></div>
+        </form>}
+      </Modal>
     </div>
   );
 }

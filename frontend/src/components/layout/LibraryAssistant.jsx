@@ -2,15 +2,32 @@ import { useEffect, useRef, useState } from 'react';
 import { Bot, LoaderCircle, MessageCircle, Send, X } from 'lucide-react';
 import api from '../../utils/api';
 
-const suggestedQuestions = [
-  'Paano ako magre-reserve ng libro?',
-  'Paano maghanap ng libro sa catalog?',
-];
+const ASSISTANT_COPY = {
+  student: {
+    greeting: 'Kumusta! I can help you find books, borrow, reserve, return, and use LibraLearn.',
+    suggestions: [
+      'How do I borrow a book?',
+      'When are my books due?',
+      'Paano ako magre-reserve ng libro?',
+    ],
+    placeholder: 'Ask about books or how to use LibraLearn...',
+  },
+  librarian: {
+    greeting: 'Hello! I can walk you through LibraLearn, your circulation queues, and the AI Insights forecast.',
+    suggestions: [
+      'Which books need more copies?',
+      'What is waiting for my approval?',
+      'How do I catalog a book with AI?',
+    ],
+    placeholder: 'Ask about the library or LibraLearn...',
+  },
+};
 
-function StudentAssistant() {
+function LibraryAssistant({ role = 'student' }) {
+  const copy = ASSISTANT_COPY[role] ?? ASSISTANT_COPY.student;
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([
-    { role: 'assistant', content: 'Kumusta! Maaari akong tumulong tungkol sa mga libro, library, at paggamit ng LibraLearn.' },
+    { role: 'assistant', content: copy.greeting },
   ]);
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(false);
@@ -43,7 +60,7 @@ function StudentAssistant() {
         ...current,
         {
           role: 'assistant',
-          content: error.response?.data?.message || 'Hindi ako makasagot ngayon. Subukan ulit mamaya.',
+          content: error.response?.data?.message || 'I could not answer right now. Please try again later.',
         },
       ]);
     } finally {
@@ -103,7 +120,7 @@ function StudentAssistant() {
 
             {messages.length === 1 && !loading && (
               <div className="space-y-2 pt-1">
-                {suggestedQuestions.map((question) => (
+                {copy.suggestions.map((question) => (
                   <button
                     key={question}
                     type="button"
@@ -119,7 +136,7 @@ function StudentAssistant() {
             {loading && (
               <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
                 <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
-                <span>Naghahanap ng sagot...</span>
+                <span>Thinking...</span>
               </div>
             )}
             <div ref={messagesEndRef} />
@@ -139,7 +156,7 @@ function StudentAssistant() {
                 }}
                 rows={1}
                 maxLength={2000}
-                placeholder="Itanong ang tungkol sa library o libro..."
+                placeholder={copy.placeholder}
                 className="max-h-24 min-h-10 flex-1 resize-y rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-teal-600"
                 aria-label="Your question"
               />
@@ -154,7 +171,7 @@ function StudentAssistant() {
               </button>
             </div>
             <p className="mt-2 text-center text-[10px] leading-4 text-[var(--text-faint)]">
-              AI-generated answers may be inaccurate. Huwag magbahagi ng password o sensitibong impormasyon.
+              AI answers can be wrong. Never share your password.
             </p>
           </form>
         </section>
@@ -174,4 +191,4 @@ function StudentAssistant() {
   );
 }
 
-export default StudentAssistant;
+export default LibraryAssistant;

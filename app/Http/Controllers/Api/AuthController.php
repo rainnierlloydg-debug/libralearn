@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Interest;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -11,17 +12,26 @@ use Illuminate\Support\Facades\Validator;
 
 class AuthController extends Controller
 {
+    public function registrationInterests()
+    {
+        return response()->json([
+            'success' => true,
+            'data' => Interest::query()->whereNotNull('slug')->where('slug', '!=', '')
+                ->orderBy('type')->orderBy('name')->get(['slug', 'name', 'type']),
+        ]);
+    }
+
     public function register(Request $request)
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'school_id' => 'required|string|max:20|unique:users,school_id',
             'email' => 'required|string|email|max:255|unique:users,email',
-            'password' => 'required|string|min:8|confirmed',
+            'password' => 'required|string|min:8',
             'grade_level' => 'nullable|string|max:50',
             'section' => 'nullable|string|max:50',
             'interests' => 'nullable|array',
-            'interests.*' => 'exists:interests,id',
+            'interests.*' => 'exists:interests,slug',
             'profile_image' => 'nullable|string',
         ]);
 
@@ -46,20 +56,30 @@ class AuthController extends Controller
         ]);
 
         if ($request->has('interests')) {
-            $user->interests()->attach($request->interests);
+            $interestIds = Interest::whereIn('slug', $request->interests)->pluck('id');
+            $user->interests()->attach($interestIds);
         }
 
         $token = $user->createToken('auth_token')->plainTextToken;
-
         return response()->json([
             'success' => true,
-            'message' => 'Registration successful',
+            'message' => 'Registration successful.',
             'user' => $user->load('interests'),
             'token' => $token,
         ], 201);
     }
 
     public function login(Request $request)
+    {
+        return $this->loginForPortal($request, false);
+    }
+
+    public function librarianLogin(Request $request)
+    {
+        return $this->loginForPortal($request, true);
+    }
+
+    private function loginForPortal(Request $request, bool $staffPortal)
     {
         $validator = Validator::make($request->all(), [
             'login' => 'required|string', // email or school_id
@@ -77,22 +97,40 @@ class AuthController extends Controller
 
         $field = filter_var($request->login, FILTER_VALIDATE_EMAIL) ? 'email' : 'school_id';
 
-        if (!Auth::attempt([$field => $request->login, 'password' => $request->password], $request->remember)) {
+        $failureMessage = null;
+        $guard = Auth::guard('web');
+        $allowedRoles = $staffPortal ? ['librarian', 'admin'] : ['student'];
+        $credentials = [$field => $request->login, 'password' => $request->password];
+
+        // Verify credentials and portal eligibility before creating a session or remember cookie.
+        $authenticated = $guard->attemptWhen($credentials, function (User $user) use ($allowedRoles, $staffPortal, &$failureMessage) {
+            if (!in_array($user->role, $allowedRoles, true)) {
+                $failureMessage = $staffPortal
+                    ? 'Student accounts must sign in through Student Login.'
+                    : 'Librarian and admin accounts must sign in through Librarian Login.';
+                return false;
+            }
+
+            if ($user->status !== 'active') {
+                $messages = [
+                    'pending' => 'Your account is waiting for librarian approval.',
+                    'rejected' => 'Your registration was not approved. Please contact the librarian.',
+                ];
+                $failureMessage = $messages[$user->status] ?? 'Account is inactive. Please contact the librarian.';
+                return false;
+            }
+
+            return true;
+        }, $request->boolean('remember'));
+
+        if (!$authenticated) {
             return response()->json([
                 'success' => false,
-                'message' => 'Invalid credentials',
-            ], 401);
+                'message' => $failureMessage ?? 'Invalid credentials',
+            ], $failureMessage ? 403 : 401);
         }
 
-        $user = Auth::user();
-        
-        if ($user->status !== 'active') {
-            Auth::logout();
-            return response()->json([
-                'success' => false,
-                'message' => 'Account is inactive. Please contact the librarian.',
-            ], 403);
-        }
+        $user = $guard->user();
 
         $token = $user->createToken('auth_token', ['*'], $request->remember ? now()->addDays(30) : now()->addHours(24))->plainTextToken;
 
@@ -133,7 +171,7 @@ class AuthController extends Controller
             'section' => 'nullable|string|max:50',
             'profile_image' => 'nullable|string',
             'interests' => 'nullable|array',
-            'interests.*' => 'exists:interests,id',
+            'interests.*' => 'exists:interests,slug',
             'current_password' => 'nullable|string',
             'new_password' => 'nullable|string|min:8|confirmed',
         ]);
@@ -160,7 +198,8 @@ class AuthController extends Controller
         $user->save();
 
         if ($request->has('interests')) {
-            $user->interests()->sync($request->interests);
+            $interestIds = Interest::whereIn('slug', $request->interests)->pluck('id');
+            $user->interests()->sync($interestIds);
         }
 
         return response()->json([

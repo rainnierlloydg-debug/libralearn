@@ -9,6 +9,7 @@ class BorrowTransaction extends Model
     protected $fillable = [
         'student_id',
         'book_id',
+        'book_copy_id',
         'request_date',
         'approval_date',
         'borrow_date',
@@ -19,6 +20,11 @@ class BorrowTransaction extends Model
         'approved_by',
         'return_confirmed_by',
         'notes',
+        'renewal_count',
+        'renewal_requested_at',
+        'fine_amount',
+        'fine_paid_at',
+        'reminded_due_date',
     ];
 
     protected $casts = [
@@ -28,6 +34,10 @@ class BorrowTransaction extends Model
         'due_date' => 'datetime',
         'return_request_date' => 'datetime',
         'return_date' => 'datetime',
+        'renewal_count' => 'integer',
+        'renewal_requested_at' => 'datetime',
+        'fine_amount' => 'decimal:2',
+        'fine_paid_at' => 'datetime',
         'status' => 'string',
     ];
 
@@ -41,6 +51,11 @@ class BorrowTransaction extends Model
         return $this->belongsTo(Book::class);
     }
 
+    public function bookCopy()
+    {
+        return $this->belongsTo(BookCopy::class);
+    }
+
     public function approvedBy()
     {
         return $this->belongsTo(User::class, 'approved_by');
@@ -49,6 +64,22 @@ class BorrowTransaction extends Model
     public function returnConfirmedBy()
     {
         return $this->belongsTo(User::class, 'return_confirmed_by');
+    }
+
+    /**
+     * Overdue is a loan state; the copy stays borrowed.
+     */
+    public function markOverdue(): void
+    {
+        $this->update(['status' => 'overdue']);
+
+        Notification::createForUser(
+            $this->student_id,
+            'Book Overdue',
+            "\"{$this->book->title}\" is now overdue. Please return it as soon as possible.",
+            'overdue',
+            ['transaction_id' => $this->id, 'book_id' => $this->book_id]
+        );
     }
 
     public function isOverdue(): bool

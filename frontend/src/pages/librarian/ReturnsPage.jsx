@@ -1,16 +1,20 @@
-import { useState, useEffect } from 'react';
-import { Search, Filter, RotateCcw, CheckCircle, AlertCircle, X, Eye, MoreVertical, Clock, Calendar, Download, BookOpen } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import useNow from '../../utils/useNow';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Search, RotateCcw, CheckCircle, AlertCircle, X, BookOpen, ScanLine, Clock, Inbox, ChevronLeft, ChevronRight } from 'lucide-react';
 import api from '../../utils/api';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
-import Input from '../../components/ui/Input';
+import Modal from '../../components/ui/Modal';
+import { useToast } from '../../contexts/useToast';
+import './borrowing.css';
+import './returns.css';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { formatDate } from '../../utils/helpers';
 
 function ReturnsPage() {
-  const { user } = useAuth();
+  const now = useNow();
+
   const [returns, setReturns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
@@ -18,13 +22,19 @@ function ReturnsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('return_requested');
   const [quickSearch, setQuickSearch] = useState('');
-  const [quickResult, setQuickResult] = useState(null);
+  const [error, setError] = useState('');
+  const [selectedReturn, setSelectedReturn] = useState(null);
+  const [condition, setCondition] = useState('good');
+  const [saving, setSaving] = useState(false);
+  const requestId = useRef(0);
+  const resultsRef = useRef(null);
+  const toast = useToast();
 
   const statusOptions = [
-    { value: 'return_requested', label: 'Return Requested' },
-    { value: 'borrowed', label: 'All Borrowed' },
+    { value: 'return_requested', label: 'Return requests' },
+    { value: 'borrowed', label: 'All active loans' },
     { value: 'overdue', label: 'Overdue' },
-    { value: 'returned', label: 'Returned' },
+    { value: 'returned', label: 'Return history' },
   ];
 
   const statusColors = {
@@ -41,294 +51,150 @@ function ReturnsPage() {
     returned: 'Returned',
   };
 
-  useEffect(() => {
-    fetchReturns();
+  const fetchReturns = useCallback(async () => {
+    const currentRequest = ++requestId.current;
+    setLoading(true);
+    setError('');
+    try {
+      const params = new URLSearchParams({ page, per_page: 20,
+        status: statusFilter === 'borrowed' ? 'borrowed,return_requested,overdue' : statusFilter,
+      });
+      if (searchQuery.trim()) params.append('search', searchQuery.trim());
+      const response = await api.get(`/borrow?${params.toString()}`);
+      if (currentRequest !== requestId.current) return;
+      if (!response.data.success) throw new Error('Unable to load returns');
+      setReturns(response.data.data.data);
+      setTotal(response.data.data.total);
+    } catch (err) {
+      if (currentRequest === requestId.current) setError(err.response?.data?.message || 'Unable to load return records. Please try again.');
+    } finally {
+      if (currentRequest === requestId.current) setLoading(false);
+    }
   }, [page, searchQuery, statusFilter]);
 
-  const fetchReturns = async () => {
+  useEffect(() => {
+    const timer = setTimeout(() => { fetchReturns(); }, 250);
+    return () => { clearTimeout(timer); requestId.current += 1; };
+  }, [fetchReturns]);
+
+  const applyStatus = (value) => {
+    if (value === statusFilter && page === 1) return;
     setLoading(true);
-    try {
-      const params = new URLSearchParams({
-        page,
-        per_page: 20,
-      });
-      if (searchQuery) params.append('search', searchQuery);
-      if (statusFilter) params.append('status', statusFilter);
-      const response = await api.get(`/borrow?${params.toString()}`);
-      if (response.data.success) {
-        setReturns(response.data.data.data.filter(t =>
-          statusFilter === 'return_requested' ? t.status === 'return_requested' :
-          statusFilter === 'borrowed' ? ['borrowed', 'return_requested', 'overdue'].includes(t.status) :
-          statusFilter === 'overdue' ? t.status === 'overdue' :
-          t.status === 'returned'
-        ));
-        setTotal(response.data.data.total);
-      }
-    } catch (err) {
-      console.error('Failed to fetch returns:', err);
-    } finally {
-      setLoading(false);
-    }
+    setStatusFilter(value);
+    setPage(1);
   };
 
-  const handleQuickSearch = async () => {
-    if (!quickSearch.trim()) return;
-    try {
-      const response = await api.get(`/borrow?search=${encodeURIComponent(quickSearch)}&status=borrowed,return_requested,overdue`);
-      if (response.data.success && response.data.data.data.length > 0) {
-        setQuickResult(response.data.data.data[0]);
-      } else {
-        setQuickResult(null);
-        alert('No matching borrowed book found');
-      }
-    } catch (err) {
-      alert('Search failed');
-    }
+  const clearFilters = () => {
+    setSearchQuery('');
+    setQuickSearch('');
+    setStatusFilter('return_requested');
+    setPage(1);
   };
 
-  const handleConfirmReturn = async (id, condition = 'good') => {
-    try {
-      await api.post(`/borrow/${id}/confirm-return`, { condition });
+  const handleQuickSearch = (event) => {
+    event.preventDefault();
+    const query = quickSearch.trim();
+    if (!query) return;
+    if (query === searchQuery && statusFilter === 'borrowed' && page === 1) {
       fetchReturns();
-      setQuickResult(null);
-      setQuickSearch('');
+    } else {
+      setLoading(true);
+      setSearchQuery(query);
+      setStatusFilter('borrowed');
+      setPage(1);
+    }
+    resultsRef.current?.focus();
+    resultsRef.current?.scrollIntoView({ block: 'start' });
+  };
+
+  const openReturn = (transaction) => {
+    setCondition('good');
+    setSelectedReturn(transaction);
+  };
+
+  const confirmReturn = async (event) => {
+    event.preventDefault();
+    if (!selectedReturn || saving) return;
+    setSaving(true);
+    try {
+      const response = await api.post(`/borrow/${selectedReturn.id}/confirm-return`, { condition });
+      if (!response.data.success) throw new Error('Unable to confirm return');
+      toast.success(condition === 'lost' ? 'Book recorded as lost.' : 'Book return confirmed.');
+      setSelectedReturn(null);
+      if (page > 1) {
+        setLoading(true);
+        setPage(1);
+      } else {
+        await fetchReturns();
+      }
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to confirm return');
+      toast.error(err.response?.data?.message || 'Unable to confirm this return. Please try again.');
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleConfirmQuickReturn = async (condition = 'good') => {
-    if (quickResult) {
-      await handleConfirmReturn(quickResult.id, condition);
-    }
-  };
-
-  const renderReturnRow = (t) => {
-    const isOverdue = t.status === 'overdue' || (t.status === 'borrowed' && t.due_date && new Date(t.due_date) < new Date());
-    const daysOverdue = isOverdue && t.due_date ? Math.ceil((new Date() - new Date(t.due_date)) / (1000 * 60 * 60 * 24)) : 0;
-
+  const renderReturnRow = (transaction) => {
+    const isActive = ['borrowed', 'return_requested', 'overdue'].includes(transaction.status);
+    const isOverdue = transaction.status === 'overdue' || (isActive && transaction.due_date && new Date(transaction.due_date) < new Date(now));
+    const daysOverdue = isOverdue && transaction.due_date ? Math.max(0, Math.ceil((new Date(now) - new Date(transaction.due_date)) / 86400000)) : 0;
     return (
-      <tr key={t.id} className={`border-b-[var(--border)] ${isOverdue ? 'bg-red-50 dark:bg-red-900/10' : ''}`}>
-        <td className="px-4 py-4">
-          <div>
-            <p className="font-medium text-[var(--text)]">{t.student.name}</p>
-            <p className="text-sm text-[var(--text-muted)]">{t.student.school_id}</p>
-          </div>
-        </td>
-        <td className="px-4 py-4">
-          <p className="font-medium text-[var(--text)] truncate max-w-xs">{t.book.title}</p>
-          <p className="text-sm text-[var(--text-muted)] truncate max-w-xs">{t.book.author}</p>
-        </td>
-        <td className="px-4 py-4 text-sm text-[var(--text-muted)]">
-          {t.borrow_date ? formatDate(t.borrow_date) : 'N/A'}
-        </td>
-        <td className="px-4 py-4">
-          {t.due_date ? (
-            <>
-              <p className={isOverdue ? 'text-red-600 font-medium' : 'text-[var(--text)]'}>
-                {formatDate(t.due_date)}
-              </p>
-              {isOverdue && (
-                <p className="text-xs text-red-600">{daysOverdue} days overdue</p>
-              )}
-            </>
-          ) : (
-            <span className="text-[var(--text-muted)]">N/A</span>
-          )}
-        </td>
-        <td className="px-4 py-4 text-sm text-[var(--text-muted)]">
-          {t.return_request_date ? formatDate(t.return_request_date) : 'Not requested'}
-        </td>
-        <td className="px-4 py-4">
-          <Badge variant={statusColors[t.status] || 'info'}>
-            {statusLabels[t.status] || t.status}
-          </Badge>
-        </td>
-        <td className="px-4 py-4">
-          <div className="flex items-center gap-1">
-            {t.status === 'return_requested' && (
-              <div className="flex items-center gap-1">
-                <Button variant="primary" size="sm" onClick={() => handleConfirmReturn(t.id, 'good')}>
-                  <CheckCircle className="w-3.5 h-3.5" />
-                  Good
-                </Button>
-                <Button variant="warning" size="sm" onClick={() => handleConfirmReturn(t.id, 'damaged')}>
-                  <AlertCircle className="w-3.5 h-3.5" />
-                  Damaged
-                </Button>
-                <Button variant="danger" size="sm" onClick={() => handleConfirmReturn(t.id, 'lost')}>
-                  <X className="w-3.5 h-3.5" />
-                  Lost
-                </Button>
-              </div>
-            )}
-            {t.status === 'borrowed' && (
-              <Button variant="secondary" size="sm" onClick={() => handleConfirmReturn(t.id, 'good')}>
-                <RotateCcw className="w-3.5 h-3.5" />
-                Return (Good)
-              </Button>
-            )}
-            {t.status === 'overdue' && (
-              <Button variant="primary" size="sm" onClick={() => handleConfirmReturn(t.id, 'good')}>
-                <CheckCircle className="w-3.5 h-3.5" />
-                Confirm Return
-              </Button>
-            )}
-          </div>
-        </td>
+      <tr key={transaction.id} className={isOverdue ? 'borrowing-row-overdue' : ''}>
+        <td><p className="borrowing-cell-title">{transaction.student.name}</p><p>{transaction.student.school_id}</p></td>
+        <td><p className="borrowing-cell-title borrowing-book-title" title={transaction.book.title}>{transaction.book.title}</p><p>{transaction.book.author}</p></td>
+        <td>{transaction.borrow_date ? formatDate(transaction.borrow_date) : 'Not available'}</td>
+        <td>{transaction.due_date ? <><p className={isOverdue ? 'borrowing-overdue-text' : ''}>{formatDate(transaction.due_date)}</p>{isOverdue && <p className="borrowing-overdue-text borrowing-overdue-days">{daysOverdue > 0 ? `${daysOverdue} day${daysOverdue === 1 ? '' : 's'} overdue` : 'Overdue'}</p>}</> : 'Not set'}</td>
+        <td>{transaction.return_request_date ? formatDate(transaction.return_request_date) : <span className="borrowing-no-action">Not requested</span>}</td>
+        <td><Badge variant={statusColors[transaction.status] || 'info'} className={`borrowing-status status-${transaction.status}`}>{statusLabels[transaction.status] || transaction.status}</Badge></td>
+        <td>{isActive ? <Button size="sm" onClick={() => openReturn(transaction)} disabled={saving || loading}><RotateCcw size={15} /> Confirm return</Button> : <span className="borrowing-no-action"><CheckCircle size={13} className="returns-complete-icon" /> Return completed</span>}</td>
       </tr>
     );
   };
 
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <h1 className="text-2xl font-heading font-bold text-[var(--text)]">Returns Management</h1>
-        <div className="space-y-3">
-          {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-24" />)}
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-heading font-bold text-[var(--text)]">Returns Management</h1>
-          <p className="text-[var(--text-muted)]">Confirm book returns and manage return requests</p>
-        </div>
-      </div>
-
-      <Card className="p-5 bg-primary-50 dark:bg-primary-900/20 border-primary-200 dark:border-primary-800">
-        <div className="flex items-center gap-2 mb-3">
-          <RotateCcw className="w-5 h-5 text-primary-600" />
-          <h3 className="font-semibold text-primary-800 dark:text-primary-200">Quick Return Confirmation</h3>
-        </div>
-        <p className="text-sm text-primary-700 dark:text-primary-300 mb-4">
-          Scan or type a Student ID or ISBN to quickly find and confirm a return.
-        </p>
-        <div className="flex gap-2">
-          <Input
-            value={quickSearch}
-            onChange={(e) => setQuickSearch(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleQuickSearch()}
-            placeholder="Enter Student ID or ISBN..."
-            leftIcon={<Search className="w-5 h-5" />}
-            className="flex-1"
-          />
-          <Button onClick={handleQuickSearch}><Search className="w-4 h-4" /> Find</Button>
-        </div>
-        {quickResult && (
-          <div className="mt-4 p-4 bg-[var(--surface)] rounded-lg border border-primary-200 dark:border-primary-800 animate-slide-up">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="admin-mini-cover-wrap relative w-12 h-16 flex-shrink-0 overflow-hidden rounded bg-[var(--surface-2)]">
-                  <div className="admin-mini-cover" aria-hidden="true"><BookOpen className="w-5 h-5" /></div>
-                  {quickResult.book.cover_image && (
-                    <img
-                      src={`/storage/${quickResult.book.cover_image}`}
-                      alt={quickResult.book.title}
-                      className="absolute inset-0 w-full h-full object-cover"
-                      onError={(event) => { event.currentTarget.style.display = 'none'; }}
-                    />
-                  )}
-                </div>
-                <div>
-                  <p className="font-medium text-[var(--text)]">{quickResult.book.title}</p>
-                  <p className="text-sm text-[var(--text-muted)]">{quickResult.book.author}</p>
-                  <p className="text-xs text-[var(--text-muted)]">
-                    Student: {quickResult.student.name} ({quickResult.student.school_id})
-                  </p>
-                  <Badge variant={statusColors[quickResult.status] || 'info'}>
-                    {statusLabels[quickResult.status]}
-                  </Badge>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <Button variant="secondary" onClick={() => handleConfirmQuickReturn('good')}>
-                  <CheckCircle className="w-4 h-4" />
-                  Good Condition
-                </Button>
-                <Button variant="warning" onClick={() => handleConfirmQuickReturn('damaged')}>
-                  <AlertCircle className="w-4 h-4" />
-                  Damaged
-                </Button>
-                <Button variant="danger" onClick={() => handleConfirmQuickReturn('lost')}>
-                  <X className="w-4 h-4" />
-                  Lost
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
+    <div className="borrowing-page returns-page">
+      <div className="borrowing-heading"><div><h1>Returns Management</h1><p>Review return requests, check book condition, and confirm returns.</p></div><span className="borrowing-heading-label"><RotateCcw size={17} /> Circulation</span></div>
+      <Card className="returns-lookup-card">
+        <div className="returns-lookup-heading"><div className="returns-lookup-icon"><ScanLine size={23} /></div><div><h2>Quick return lookup</h2><p>Scan or enter a student ID or ISBN to find matching active loans below.</p></div></div>
+        <form className="returns-lookup-form" onSubmit={handleQuickSearch}>
+          <div className="borrowing-search-field"><label htmlFor="returns-quick-search">Student ID or ISBN</label><div className="borrowing-search-input"><ScanLine size={18} aria-hidden="true" /><input id="returns-quick-search" className="input" type="search" value={quickSearch} onChange={(event) => setQuickSearch(event.target.value)} placeholder="Scan or type student ID or ISBN…" required /></div></div>
+          <Button type="submit" disabled={!quickSearch.trim() || saving}><Search size={17} /> Find loans</Button>
+        </form>
+        <p className="returns-lookup-hint"><BookOpen size={14} /> Check the student and book, then choose Confirm return.</p>
       </Card>
-
-      <Card className="p-4">
-        <form className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--text-faint)]" />
-            <input
-              type="search"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && setPage(1)}
-              placeholder="Search by student name, school ID, or book title..."
-              className="input pl-12"
-            />
-          </div>
-          <select
-            value={statusFilter}
-            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-            className="input w-auto min-w-[200px]"
-          >
-            {statusOptions.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
+      <Card className="borrowing-filters-card">
+        <div className="borrowing-quick-filters" role="group" aria-label="Quick return filters">
+          {[['return_requested', 'Return requests', RotateCcw], ['borrowed', 'All active loans', BookOpen], ['overdue', 'Overdue', AlertCircle], ['returned', 'Return history', Clock]].map(([value, label, Icon]) =>
+            <button type="button" key={value} className={statusFilter === value ? 'is-active' : ''} aria-pressed={statusFilter === value} onClick={() => applyStatus(value)}><Icon size={16} />{label}</button>
+          )}
+        </div>
+        <form className="borrowing-search-form" onSubmit={(event) => { event.preventDefault(); setPage(1); }}>
+          <div className="borrowing-search-field"><label htmlFor="returns-search">Search loans and returns</label><div className="borrowing-search-input"><Search size={18} aria-hidden="true" /><input id="returns-search" type="search" className="input" value={searchQuery} onChange={(event) => { setSearchQuery(event.target.value); setPage(1); }} placeholder="Search by student, school ID, book title, or ISBN…" /></div></div>
+          <div className="borrowing-status-field"><label htmlFor="returns-status">Status</label><select id="returns-status" className="input" value={statusFilter} onChange={(event) => applyStatus(event.target.value)}>{statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div>
+          {(searchQuery || statusFilter !== 'return_requested') && <Button variant="secondary" onClick={clearFilters}><X size={15} /> Reset filters</Button>}
         </form>
       </Card>
-
-      <Card>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b-[var(--border)]">
-                <th className="px-4 py-3 text-left text-sm font-semibold text-[var(--text-muted)]">Student</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-[var(--text-muted)]">Book</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-[var(--text-muted)]">Borrow Date</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-[var(--text-muted)]">Due Date</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-[var(--text-muted)]">Return Requested</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-[var(--text-muted)]">Status</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-[var(--text-muted)]">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {returns.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-[var(--text-muted)]">
-                    No return requests found
-                  </td>
-                </tr>
-              ) : (
-                returns.map((t) => renderReturnRow(t))
-              )}
-            </tbody>
+      <Card className="borrowing-table-card">
+        <div ref={resultsRef} className="returns-results-anchor" tabIndex={-1} />
+        <div className="borrowing-table-heading"><div><h2>{statusFilter === 'returned' ? 'Return history' : 'Loans awaiting return'}</h2><p>{loading ? 'Loading records…' : error ? 'Records temporarily unavailable' : `${total} matching record${total === 1 ? '' : 's'}`}</p></div><span>Latest loans first</span></div>
+        {error && <div className="borrowing-error" role="alert"><AlertCircle size={18} /><p>{error}</p><Button variant="secondary" onClick={fetchReturns}><RotateCcw size={15} /> Try again</Button></div>}
+        <div className="borrowing-table-scroll" role="region" aria-label="Loans and returns" tabIndex={0} aria-busy={loading}>
+          <table className="borrowing-table"><caption className="sr-only">Book loans, student details, due dates, return requests, and return actions</caption>
+            <thead><tr>{['Student', 'Book', 'Borrow date', 'Due date', 'Return requested', 'Status', 'Actions'].map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead>
+            <tbody>{loading ? <tr><td colSpan={7}><div className="borrowing-loading" role="status" aria-label="Loading returns">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-16" />)}</div></td></tr> : error ? null : returns.length === 0 ? <tr><td colSpan={7}><div className="borrowing-empty"><Inbox size={32} /><h3>{searchQuery ? 'No matching records' : statusFilter === 'return_requested' ? 'No return requests to review' : statusFilter === 'returned' ? 'No completed returns yet' : 'No loans found'}</h3><p>{searchQuery ? 'Check the student ID or ISBN, or try another search.' : 'Use All active loans to find books still checked out.'}</p>{statusFilter !== 'borrowed' && <Button variant="secondary" onClick={() => applyStatus('borrowed')}>View active loans</Button>}</div></td></tr> : returns.map(renderReturnRow)}</tbody>
           </table>
         </div>
-
-        {total > 20 && (
-          <div className="px-4 py-4 border-t-[var(--border)] flex items-center justify-center gap-2">
-            <Button variant="secondary" size="sm" onClick={() => setPage(page - 1)} disabled={page === 1}>
-              Previous
-            </Button>
-            <span className="px-4 text-[var(--text-muted)]">Page {page} of {Math.ceil(total / 20)}</span>
-            <Button variant="secondary" size="sm" onClick={() => setPage(page + 1)} disabled={page >= Math.ceil(total / 20)}>
-              Next
-            </Button>
-          </div>
-        )}
+        {!error && total > 20 && <div className="borrowing-pagination"><span>Showing {(page - 1) * 20 + 1}–{Math.min(page * 20, total)} of {total}</span><div>
+          <Button size="sm" variant="secondary" onClick={() => setPage(page - 1)} disabled={loading || page === 1}><ChevronLeft size={16} /> Previous</Button><span aria-live="polite">Page {page} of {Math.ceil(total / 20)}</span><Button size="sm" variant="secondary" onClick={() => setPage(page + 1)} disabled={loading || page >= Math.ceil(total / 20)}>Next <ChevronRight size={16} /></Button>
+        </div></div>}
       </Card>
+      <Modal isOpen={!!selectedReturn} title="Confirm book return" className="borrowing-action-modal" onClose={() => { if (!saving) setSelectedReturn(null); }}>
+        {selectedReturn && <form onSubmit={confirmReturn}>
+          <div className="borrowing-dialog-context"><BookOpen size={21} /><div><strong>{selectedReturn.book.title}</strong><p>{selectedReturn.student.name} · {selectedReturn.student.school_id}</p><p>Due: {selectedReturn.due_date ? formatDate(selectedReturn.due_date) : 'Not set'}</p></div></div>
+          <div className="borrowing-dialog-field"><label htmlFor="returns-condition">Book condition</label><select id="returns-condition" className="input" value={condition} onChange={(event) => setCondition(event.target.value)} disabled={saving}><option value="good">Good condition</option><option value="damaged">Damaged</option><option value="lost">Lost</option></select><p>{condition === 'lost' ? 'This records the book as lost and closes the loan.' : condition === 'damaged' ? 'This records a damaged return and closes the loan.' : 'Confirm that you have received this book in good condition.'}</p></div>
+          <div className="borrowing-dialog-actions"><Button variant="secondary" onClick={() => setSelectedReturn(null)} disabled={saving}>Cancel</Button><Button type="submit" variant={condition === 'lost' ? 'danger' : 'primary'} loading={saving}><CheckCircle size={16} />{condition === 'lost' ? 'Record as lost' : 'Confirm return'}</Button></div>
+        </form>}
+      </Modal>
     </div>
   );
 }

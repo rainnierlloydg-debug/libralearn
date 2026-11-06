@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import { Bell, CheckCircle, X, Filter, Mail, Clock, AlertCircle, BookOpen, Calendar, RotateCcw, Bookmark, Check } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
+import { Bell, CheckCircle, X, Clock, AlertCircle, BookOpen, Calendar, RotateCcw, Bookmark, Check } from 'lucide-react';
 import api from '../../utils/api';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
@@ -54,18 +54,14 @@ const NOTIFICATION_TITLES = {
 };
 
 function NotificationsPage() {
-  const { user } = useAuth();
+
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
   const [unreadCount, setUnreadCount] = useState(0);
+  const [actionLoading, setActionLoading] = useState(null);
 
-  useEffect(() => {
-    fetchNotifications();
-    fetchUnreadCount();
-  }, [filter]);
-
-  const fetchNotifications = async () => {
+  const fetchNotifications = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ per_page: 50 });
@@ -79,48 +75,66 @@ function NotificationsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filter]);
 
-  const fetchUnreadCount = async () => {
+  const fetchUnreadCount = useCallback(async () => {
     try {
       const response = await api.get('/notifications/unread-count');
       if (response.data.success) {
         setUnreadCount(response.data.data.unread_count);
       }
-    } catch (err) {
+    } catch {
       // Ignore
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    // Defer network setup and cancel it if this view changes before it starts.
+    const timer = setTimeout(() => {
+      fetchNotifications();
+      fetchUnreadCount();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchNotifications, fetchUnreadCount]);
 
   const handleMarkAsRead = async (id) => {
+    setActionLoading(id);
     try {
       await api.post(`/notifications/${id}/read`);
       setNotifications((prev) =>
-        prev.map((n) => (n.id === id ? { ...n, read_status: true } : n))
+        filter === 'unread' ? prev.filter(n => n.id !== id) : prev.map((n) => (n.id === id ? { ...n, read_status: true } : n))
       );
-      setUnreadCount((prev) => Math.max(0, prev - 1));
+      fetchUnreadCount();
     } catch (err) {
       console.error('Failed to mark as read:', err);
+    } finally {
+      setActionLoading(null);
     }
   };
 
   const handleMarkAllAsRead = async () => {
+    setActionLoading('all');
     try {
       await api.post('/notifications/read-all');
-      setNotifications((prev) => prev.map((n) => ({ ...n, read_status: true })));
+      setNotifications((prev) => filter === 'unread' ? [] : prev.map((n) => ({ ...n, read_status: true })));
       setUnreadCount(0);
     } catch (err) {
       console.error('Failed to mark all as read:', err);
+    } finally {
+      setActionLoading(null);
     }
   };
 
   const handleDelete = async (id) => {
+    setActionLoading(id);
     try {
       await api.delete(`/notifications/${id}`);
       setNotifications((prev) => prev.filter((n) => n.id !== id));
-      if (unreadCount > 0) setUnreadCount((prev) => prev - 1);
+      fetchUnreadCount();
     } catch (err) {
       console.error('Failed to delete notification:', err);
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -142,40 +156,37 @@ function NotificationsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="student-notifications-page space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-heading font-bold text-[var(--text)]">Notifications</h1>
           <p className="text-[var(--text-muted)]">Stay updated on your library activity</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-3">
           {unreadCount > 0 && (
             <Badge variant="danger" className="flex items-center gap-1">
               <Bell className="w-3.5 h-3.5" />
               {unreadCount} unread
             </Badge>
           )}
-          <Button variant="secondary" onClick={handleMarkAllAsRead} disabled={unreadCount === 0}>
-            Mark All Read
+          <Button variant="secondary" onClick={handleMarkAllAsRead} disabled={unreadCount === 0 || actionLoading !== null} leftIcon={<CheckCircle className="w-4 h-4" aria-hidden="true" />}>
+            {actionLoading === 'all' ? 'Marking as Read...' : 'Mark All Read'}
           </Button>
         </div>
       </div>
 
       {/* Filter tabs */}
-      <div className="flex gap-2 border-b-[var(--border)] pb-1">
+      <div className="notification-filters" role="group" aria-label="Filter notifications">
         {['all', 'unread', 'read'].map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
-            className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
-              filter === f
-                ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-700'
-                : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface-2)]'
-            }`}
+            className="notification-filter-button"
+            aria-pressed={filter === f}
           >
             {f.charAt(0).toUpperCase() + f.slice(1)}
             {f === 'unread' && unreadCount > 0 && (
-              <span className="ml-2 px-2 py-0.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-full">
+              <span className="notification-unread-count">
                 {unreadCount}
               </span>
             )}
@@ -185,16 +196,17 @@ function NotificationsPage() {
 
       {/* Notifications list */}
       {notifications.length === 0 ? (
-        <Card className="p-12 text-center">
-          <Bell className="w-16 h-16 mx-auto text-[var(--text-faint)] mb-4" />
+        <Card className="notification-empty-state p-6 sm:p-12 text-center">
+          <div className="saved-books-empty-icon"><Bell className="w-8 h-8" aria-hidden="true" /></div>
           <h3 className="text-xl font-semibold text-[var(--text)] mb-2">
-            {filter === 'unread' ? 'No unread notifications' : 'No notifications yet'}
+            {filter === 'unread' ? 'No unread notifications' : filter === 'read' ? 'No read notifications' : 'No notifications yet'}
           </h3>
           <p className="text-[var(--text-muted)]">
-            {filter === 'unread' 
-              ? "You're all caught up!" 
-              : 'Notifications will appear here when you have library activity.'}
+            {filter === 'unread'
+              ? "You're all caught up!"
+              : filter === 'read' ? 'Notifications you mark as read will appear here.' : 'Notifications will appear here when you have library activity.'}
           </p>
+          {filter !== 'all' && <Button variant="secondary" className="mt-5" onClick={() => setFilter('all')}>View All Notifications</Button>}
         </Card>
       ) : (
         <div className="space-y-3">
@@ -202,47 +214,49 @@ function NotificationsPage() {
             const Icon = getIcon(notif.type);
             const color = getColor(notif.type);
             const title = notif.title || getDefaultTitle(notif.type);
-            
+
             return (
-              <Card 
-                key={notif.id} 
-                className={`p-4 ${!notif.read_status ? 'border-primary-200 dark:border-primary-800 bg-primary-50 dark:bg-primary-900/10' : ''}`}
+              <Card
+                key={notif.id}
+                className="notification-item p-4"
+                data-unread={!notif.read_status}
               >
                 <div className="flex items-start gap-3">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 bg-${color}-100 dark:bg-${color}-900/30`}>
-                    <Icon className={`w-5 h-5 text-${color}-600 dark:text-${color}-400`} />
+                  <div className="notification-type-icon" data-tone={color}>
+                    <Icon className="w-5 h-5" aria-hidden="true" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2">
+                    <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-3">
                       <div className="min-w-0">
-                        <h4 className="font-medium text-[var(--text)]">{title}</h4>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h4 className="font-semibold text-[var(--text)]">{title}</h4>
+                          {!notif.read_status && <Badge variant="info">Unread</Badge>}
+                        </div>
                         <p className="text-sm text-[var(--text-muted)] mt-0.5">{notif.message}</p>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
                         <span className="text-xs text-[var(--text-faint)] whitespace-nowrap">{getRelativeTime(notif.created_at)}</span>
                         {!notif.read_status && (
-                          <button
+                          <Button variant="secondary" size="sm" disabled={actionLoading !== null}
                             onClick={() => handleMarkAsRead(notif.id)}
-                            className="btn-ghost p-1.5 text-xs"
                           >
                             <Check className="w-4 h-4" />
                             Mark read
-                          </button>
+                          </Button>
                         )}
-                        <button
+                        <Button variant="secondary" size="sm" disabled={actionLoading !== null}
                           onClick={() => handleDelete(notif.id)}
-                          className="btn-ghost p-1.5 text-red-500 hover:bg-red-50"
                           aria-label="Delete notification"
                         >
                           <X className="w-4 h-4" />
-                        </button>
+                          Delete
+                        </Button>
                       </div>
                     </div>
-                    {notif.data && (
-                      <div className="mt-3 pt-3 border-t-[var(--border)] text-xs text-[var(--text-muted)]">
-                        <p>Type: {notif.type}</p>
-                        {notif.data.book_id && <p>Book ID: {notif.data.book_id}</p>}
-                        {notif.data.transaction_id && <p>Transaction ID: {notif.data.transaction_id}</p>}
+                    {(notif.data?.book_id || notif.data?.transaction_id) && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {notif.data.book_id && <Link to={`/books/${notif.data.book_id}`} className="btn btn-secondary btn-sm">View Book</Link>}
+                        {notif.data.transaction_id && <Link to="/my-books" className="btn btn-secondary btn-sm">View My Books</Link>}
                       </div>
                     )}
                     </div>

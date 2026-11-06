@@ -50,17 +50,55 @@ class InterestSeeder extends Seeder
             ['name' => 'Reference', 'type' => 'subject', 'description' => 'Encyclopedias, dictionaries, almanacs'],
         ];
 
+        $slugMap = [
+            'Fiction' => 'genre-fiction',
+            'Fantasy' => 'genre-fantasy',
+            'Science Fiction' => 'genre-sci-fi',
+            'Mystery' => 'genre-mystery',
+            'Romance' => 'genre-romance',
+            'Adventure' => 'genre-adventure',
+            'Horror' => 'genre-horror',
+            'Thriller' => 'genre-thriller',
+            'Biography' => 'genre-biography',
+            'Autobiography' => 'genre-autobiography',
+            'Poetry' => 'genre-poetry',
+            'Drama' => 'genre-drama',
+            'Historical Fiction' => 'genre-historical',
+            'Graphic Novel' => 'genre-graphic',
+            'Young Adult' => 'genre-ya',
+            'Children\'s Literature' => 'genre-childrens',
+            'Short Stories' => 'genre-short-stories',
+            'Mythology' => 'genre-mythology',
+            'Fairy Tales' => 'genre-fairy-tales',
+            'Dystopian' => 'genre-dystopian',
+            'Mathematics' => 'subject-math',
+            'Science' => 'subject-science',
+            'English' => 'subject-english',
+            'Filipino' => 'subject-filipino',
+            'History' => 'subject-history',
+            'Social Studies' => 'subject-social',
+            'Technology' => 'subject-tech',
+            'Arts' => 'subject-arts',
+            'Physical Education' => 'subject-pe',
+            'Values Education' => 'subject-values',
+            'Economics' => 'subject-economics',
+            'Psychology' => 'subject-psychology',
+            'Philosophy' => 'subject-philosophy',
+            'Religion' => 'subject-religion',
+            'Reference' => 'subject-reference',
+        ];
+
         foreach ($genres as $genre) {
             Interest::firstOrCreate(
                 ['name' => $genre['name'], 'type' => 'genre'],
-                ['description' => $genre['description']]
+                ['description' => $genre['description'], 'slug' => $slugMap[$genre['name']]]
             );
         }
 
         foreach ($subjects as $subject) {
             Interest::firstOrCreate(
                 ['name' => $subject['name'], 'type' => 'subject'],
-                ['description' => $subject['description']]
+                ['description' => $subject['description'], 'slug' => $slugMap[$subject['name']]]
             );
         }
     }

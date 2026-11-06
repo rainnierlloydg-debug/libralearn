@@ -1,29 +1,29 @@
-import { useState, useEffect } from 'react';
-import { Save, Plus, Edit, Trash2, BookOpen, MapPin, Users, Bell, Shield, Palette, Key, Database, Wrench, ArrowUpDown, ChevronDown, ChevronUp } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import { useState, useEffect, useCallback } from 'react';
+import { Save, Plus, Edit, Trash2, BookOpen, MapPin, Bell, Palette, Database, Wrench } from 'lucide-react';
 import api from '../../utils/api';
-import Badge from '../../components/ui/Badge';
+
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import Card from '../../components/ui/Card';
 import Select from '../../components/ui/Select';
 import Modal from '../../components/ui/Modal';
-import { formatDate } from '../../utils/helpers';
+import { Skeleton } from '../../components/ui/Skeleton';
+
 import { getThemePreference, setShellTheme } from '../../utils/theme';
 
 function SettingsPage() {
-  const { user } = useAuth();
+
   const [activeTab, setActiveTab] = useState('general');
   const [theme, setTheme] = useState(() => getThemePreference('admin'));
-  const [loading, setLoading] = useState(false);
+  const [loading, _setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
 
   // Settings data
   const [settings, setSettings] = useState({
-    loan_period_days: 14,
-    max_renewals: 2,
-    renewal_days: 7,
+    loan_period_days: 3,
+    max_renewals: 1,
+    renewal_days: 1,
     reservation_pickup_days: 3,
     max_reservations_per_student: 3,
     overdue_fine_per_day: 0,
@@ -38,6 +38,7 @@ function SettingsPage() {
   // Library sections/shelves
   const [sections, setSections] = useState([]);
   const [editingSection, setEditingSection] = useState(null);
+  const [sectionModalOpen, setSectionModalOpen] = useState(false);
   const [sectionForm, setSectionForm] = useState({
     section_name: '',
     shelf_number: '',
@@ -49,6 +50,7 @@ function SettingsPage() {
   const [genres, setGenres] = useState([]);
   const [subjects, setSubjects] = useState([]);
   const [editingInterest, setEditingInterest] = useState(null);
+  const [interestModalOpen, setInterestModalOpen] = useState(false);
   const [interestForm, setInterestForm] = useState({
     name: '',
     type: 'genre',
@@ -75,24 +77,19 @@ function SettingsPage() {
     setShellTheme('admin', newTheme);
   };
 
-  useEffect(() => {
-    fetchSettings();
-    fetchSections();
-    fetchCategories();
-  }, []);
-
-  const fetchSettings = async () => {
+  const fetchSettings = useCallback(async () => {
     try {
-      const response = await api.get('/settings');
+      const response = await api.get('/library-settings');
       if (response.data.success) {
-        setSettings(response.data.data);
+        const data = response.data.data;
+        setSettings((current) => ({ ...current, ...data, loan_period_days: data.loan_days, overdue_fine_per_day: data.fine_per_day }));
       }
     } catch (err) {
       console.error('Failed to fetch settings:', err);
     }
-  };
+  }, []);
 
-  const fetchSections = async () => {
+  const fetchSections = useCallback(async () => {
     try {
       const response = await api.get('/library-locations');
       if (response.data.success) {
@@ -101,20 +98,29 @@ function SettingsPage() {
     } catch (err) {
       console.error('Failed to fetch sections:', err);
     }
-  };
+  }, []);
 
-  const fetchCategories = async () => {
+  const fetchCategories = useCallback(async () => {
     try {
-      const [genresRes, subjectsRes] = await Promise.all([
-        api.get('/books/genres'),
-        api.get('/books/subjects'),
-      ]);
-      if (genresRes.data.success) setGenres(genresRes.data.data);
-      if (subjectsRes.data.success) setSubjects(subjectsRes.data.data);
+      const response = await api.get('/interests');
+      if (response.data.success) {
+        setGenres(response.data.data.filter((interest) => interest.type === 'genre'));
+        setSubjects(response.data.data.filter((interest) => interest.type === 'subject'));
+      }
     } catch (err) {
       console.error('Failed to fetch categories:', err);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    // Defer network setup and cancel it if this view changes before it starts.
+    const timer = setTimeout(() => {
+      fetchSettings();
+      fetchSections();
+      fetchCategories();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchSettings, fetchSections, fetchCategories]);
 
   const handleSettingChange = (key, value) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
@@ -124,11 +130,13 @@ function SettingsPage() {
     setSaving(true);
     setSuccessMessage('');
     try {
-      // In a real app, you'd send to backend
-      // await api.put('/settings', settings);
+      const payload = section === 'General'
+        ? { library_name: settings.library_name, library_email: settings.library_email, library_phone: settings.library_phone, library_address: settings.library_address }
+        : { fine_per_day: settings.overdue_fine_per_day };
+      await api.put('/library-settings', payload);
       setSuccessMessage(`${section} settings saved successfully!`);
     } catch (err) {
-      alert('Failed to save settings');
+      alert(err.response?.data?.message || 'Failed to save settings');
     } finally {
       setSaving(false);
     }
@@ -136,11 +144,13 @@ function SettingsPage() {
 
   // Section management
   const openAddSection = () => {
+    setSectionModalOpen(true);
     setEditingSection(null);
     setSectionForm({ section_name: '', shelf_number: '', description: '', color: '#4F46E5' });
   };
 
   const openEditSection = (section) => {
+    setSectionModalOpen(true);
     setEditingSection(section);
     setSectionForm({
       section_name: section.section_name,
@@ -161,7 +171,8 @@ function SettingsPage() {
       }
       fetchSections();
       setEditingSection(null);
-    } catch (err) {
+      setSectionModalOpen(false);
+    } catch {
       alert('Failed to save section');
     } finally {
       setSaving(false);
@@ -173,18 +184,20 @@ function SettingsPage() {
     try {
       await api.delete(`/library-locations/${id}`);
       fetchSections();
-    } catch (err) {
+    } catch {
       alert('Failed to delete section');
     }
   };
 
   // Interest management
   const openAddInterest = (type) => {
+    setInterestModalOpen(true);
     setEditingInterest(null);
     setInterestForm({ name: '', type, description: '' });
   };
 
   const openEditInterest = (interest) => {
+    setInterestModalOpen(true);
     setEditingInterest(interest);
     setInterestForm({ name: interest.name, type: interest.type, description: interest.description || '' });
   };
@@ -200,7 +213,8 @@ function SettingsPage() {
       }
       fetchCategories();
       setEditingInterest(null);
-    } catch (err) {
+      setInterestModalOpen(false);
+    } catch {
       alert('Failed to save category');
     } finally {
       setSaving(false);
@@ -212,7 +226,7 @@ function SettingsPage() {
     try {
       await api.delete(`/interests/${id}`);
       fetchCategories();
-    } catch (err) {
+    } catch {
       alert('Failed to delete category');
     }
   };
@@ -240,16 +254,17 @@ function SettingsPage() {
     <div className="space-y-6">
       <Card className="p-6">
         <h3 className="text-lg font-semibold text-[var(--text)] mb-4">Loan Periods</h3>
+        <p className="mb-4 text-sm text-[var(--text-muted)]">Loan and reservation rules follow the library policy. The fine amount can be changed below.</p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <Input label="Loan Period (days)" type="number" value={settings.loan_period_days} onChange={(e) => handleSettingChange('loan_period_days', parseInt(e.target.value) || 14)} min="1" max="90" />
-          <Input label="Max Renewals" type="number" value={settings.max_renewals} onChange={(e) => handleSettingChange('max_renewals', parseInt(e.target.value) || 2)} min="0" max="10" />
-          <Input label="Renewal Extension (days)" type="number" value={settings.renewal_days} onChange={(e) => handleSettingChange('renewal_days', parseInt(e.target.value) || 7)} min="1" max="30" />
+          <Input label="Loan Period (days)" type="number" value={settings.loan_period_days} onChange={(e) => handleSettingChange('loan_period_days', parseInt(e.target.value) || 14)} min="1" max="90" disabled />
+          <Input label="Max Renewals" type="number" value={settings.max_renewals} onChange={(e) => handleSettingChange('max_renewals', parseInt(e.target.value) || 2)} min="0" max="10" disabled />
+          <Input label="Renewal Extension (days)" type="number" value={settings.renewal_days} onChange={(e) => handleSettingChange('renewal_days', parseInt(e.target.value) || 7)} min="1" max="30" disabled />
         </div>
         <div className="border-t-[var(--border)] pt-6">
           <h3 className="text-lg font-semibold text-[var(--text)] mb-4">Reservations</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <Input label="Reservation Pickup (days)" type="number" value={settings.reservation_pickup_days} onChange={(e) => handleSettingChange('reservation_pickup_days', parseInt(e.target.value) || 3)} min="1" max="14" />
-            <Input label="Max Reservations per Student" type="number" value={settings.max_reservations_per_student} onChange={(e) => handleSettingChange('max_reservations_per_student', parseInt(e.target.value) || 3)} min="1" max="20" />
+            <Input label="Reservation Pickup (days)" type="number" value={settings.reservation_pickup_days} onChange={(e) => handleSettingChange('reservation_pickup_days', parseInt(e.target.value) || 3)} min="1" max="14" disabled />
+            <Input label="Max Reservations per Student" type="number" value={settings.max_reservations_per_student} onChange={(e) => handleSettingChange('max_reservations_per_student', parseInt(e.target.value) || 3)} min="1" max="20" disabled />
           </div>
         </div>
         <div className="border-t-[var(--border)] pt-6">
@@ -286,7 +301,7 @@ function SettingsPage() {
         </div>
         <div className="mt-4 flex justify-end">
           <Button onClick={() => handleSaveSettings('Circulation')} loading={saving}>
-            <Save className="w-4 h-4" /> Save Circulation Settings
+            <Save className="w-4 h-4" /> Save Fine Amount
           </Button>
         </div>
       </Card>
@@ -349,7 +364,7 @@ function SettingsPage() {
       </Card>
 
       {/* Section Modal */}
-      <Modal isOpen={!!editingSection} onClose={() => setEditingSection(null)} title={editingSection ? 'Edit Shelf' : 'Add New Shelf'}>
+      <Modal isOpen={sectionModalOpen} onClose={() => setSectionModalOpen(false)} title={editingSection ? 'Edit Shelf' : 'Add New Shelf'}>
         <form onSubmit={handleSectionSubmit} className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Input label="Section Name *" name="section_name" value={sectionForm.section_name} onChange={(e) => setSectionForm({...sectionForm, section_name: e.target.value})} required />
@@ -360,7 +375,7 @@ function SettingsPage() {
             <Input label="Color" type="color" name="color" value={sectionForm.color} onChange={(e) => setSectionForm({...sectionForm, color: e.target.value})} className="h-12 cursor-pointer" />
           </div>
           <div className="flex justify-end gap-2 pt-4 border-t-[var(--border)]">
-            <Button type="button" variant="secondary" onClick={() => setEditingSection(null)}>Cancel</Button>
+            <Button type="button" variant="secondary" onClick={() => setSectionModalOpen(false)}>Cancel</Button>
             <Button type="submit" loading={saving}>
               <Save className="w-4 h-4" /> {editingSection ? 'Update' : 'Add'} Shelf
             </Button>
@@ -439,7 +454,7 @@ function SettingsPage() {
       </Card>
 
       {/* Interest Modal */}
-      <Modal isOpen={!!editingInterest} onClose={() => setEditingInterest(null)} title={editingInterest ? 'Edit Category' : 'Add New Category'}>
+      <Modal isOpen={interestModalOpen} onClose={() => setInterestModalOpen(false)} title={editingInterest ? 'Edit Category' : 'Add New Category'}>
         <form onSubmit={handleInterestSubmit} className="space-y-4">
           <Input label="Name *" name="name" value={interestForm.name} onChange={(e) => setInterestForm({...interestForm, name: e.target.value})} required />
           <Select label="Type *" value={interestForm.type} onChange={(e) => setInterestForm({...interestForm, type: e.target.value})} options={[
@@ -448,7 +463,7 @@ function SettingsPage() {
           ]} required />
           <Input label="Description" name="description" value={interestForm.description} onChange={(e) => setInterestForm({...interestForm, description: e.target.value})} />
           <div className="flex justify-end gap-2 pt-4 border-t-[var(--border)]">
-            <Button type="button" variant="secondary" onClick={() => setEditingInterest(null)}>Cancel</Button>
+            <Button type="button" variant="secondary" onClick={() => setInterestModalOpen(false)}>Cancel</Button>
             <Button type="submit" loading={saving}>
               <Save className="w-4 h-4" /> {editingInterest ? 'Update' : 'Add'} Category
             </Button>
@@ -485,8 +500,8 @@ function SettingsPage() {
           </div>
         </div>
         <div className="mt-4 flex justify-end">
-          <Button onClick={() => handleSaveSettings('Notifications')} loading={saving}>
-            <Save className="w-4 h-4" /> Save Notification Settings
+          <Button disabled title="Notifications follow the library policy">
+            <Save className="w-4 h-4" /> Notifications follow library policy
           </Button>
         </div>
       </Card>

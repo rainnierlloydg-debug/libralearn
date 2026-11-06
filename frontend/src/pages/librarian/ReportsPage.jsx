@@ -1,21 +1,20 @@
-import { useState, useEffect } from 'react';
-import { Download, Calendar, Filter, BookOpen, Users, TrendingUp, BarChart, Clock, Bookmark, AlertCircle, CheckCircle, X } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import { useState, useEffect, useCallback } from 'react';
+import { Download, Calendar, BookOpen, Users, TrendingUp } from 'lucide-react';
 import api from '../../utils/api';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
-import Select from '../../components/ui/Select';
+
 import { Skeleton } from '../../components/ui/Skeleton';
 import { formatDate } from '../../utils/helpers';
 
 function ReportsPage() {
-  const { user } = useAuth();
+
   const [activeTab, setActiveTab] = useState('books');
-  const [dateRange, setDateRange] = useState({
+  const [dateRange, setDateRange] = useState(() => ({
     from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     to: new Date().toISOString().split('T')[0],
-  });
+  }));
   const [loading, setLoading] = useState(false);
   const [reportData, setReportData] = useState(null);
 
@@ -23,14 +22,9 @@ function ReportsPage() {
     { id: 'books', label: 'Book Report', icon: BookOpen },
     { id: 'borrowing', label: 'Borrowing Report', icon: TrendingUp },
     { id: 'students', label: 'Student Activity', icon: Users },
-    { id: 'ai', label: 'AI Cataloging', icon: Sparkles },
   ];
 
-  useEffect(() => {
-    fetchReport();
-  }, [activeTab, dateRange.from, dateRange.to]);
-
-  const fetchReport = async () => {
+  const fetchReport = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams({
@@ -42,7 +36,6 @@ function ReportsPage() {
         case 'books': endpoint = '/reports/books'; break;
         case 'borrowing': endpoint = '/reports/borrowing'; break;
         case 'students': endpoint = '/reports/student-activity'; break;
-        case 'ai': endpoint = '/reports/ai-cataloging'; break;
       }
       const response = await api.get(`${endpoint}?${params.toString()}`);
       if (response.data.success) {
@@ -53,7 +46,15 @@ function ReportsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeTab, dateRange.from, dateRange.to]);
+
+  useEffect(() => {
+    // Defer network setup and cancel it if this view changes before it starts.
+    const timer = setTimeout(() => {
+      fetchReport();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchReport]);
 
   const handleExport = async (type) => {
     try {
@@ -66,7 +67,6 @@ function ReportsPage() {
         case 'books': endpoint = '/reports/books/export'; break;
         case 'borrowing': endpoint = '/reports/borrowing/export'; break;
         case 'students': endpoint = '/reports/student-activity/export'; break;
-        case 'ai': endpoint = '/reports/ai-cataloging/export'; break;
       }
       const response = await api.get(`${endpoint}?${params.toString()}`, { responseType: 'blob' });
       const url = window.URL.createObjectURL(new Blob([response.data]));
@@ -76,7 +76,7 @@ function ReportsPage() {
       document.body.appendChild(link);
       link.click();
       link.remove();
-    } catch (err) {
+    } catch {
       alert('Export failed');
     }
   };
@@ -93,7 +93,7 @@ function ReportsPage() {
   }
 
   const renderBookReport = () => {
-    const { books, summary } = reportData || {};
+    const { books: _books, summary } = reportData || {};
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -191,7 +191,7 @@ function ReportsPage() {
   };
 
   const renderBorrowingReport = () => {
-    const { transactions, summary } = reportData || {};
+    const { transactions: _transactions, summary } = reportData || {};
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -373,77 +373,7 @@ function ReportsPage() {
         </Card>
       </div>
     );
-  };
 
-  const renderAiCatalogingReport = () => {
-    const { jobs, summary } = reportData || {};
-    return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card className="p-4">
-            <p className="text-sm text-[var(--text-muted)]">Total Processed</p>
-            <p className="text-3xl font-bold text-[var(--text)]">{summary?.total_processed || 0}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-sm text-[var(--text-muted)]">Successful</p>
-            <p className="text-3xl font-bold text-green-600">{summary?.successful_identification || 0}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-sm text-[var(--text-muted)]">Needs Review</p>
-            <p className="text-3xl font-bold text-yellow-600">{summary?.requiring_manual_correction || 0}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-sm text-[var(--text-muted)]">Avg Confidence</p>
-            <p className="text-3xl font-bold text-[var(--text)]">{summary?.avg_confidence?.toFixed(1) || 0}%</p>
-          </Card>
-        </div>
-
-        <Card>
-          <div className="p-4 border-b-[var(--border)] flex items-center justify-between">
-            <h3 className="font-semibold text-[var(--text)]">Jobs by Status</h3>
-          </div>
-          <div className="p-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {summary?.by_status?.map((item) => (
-                <div key={item.status} className="text-center p-3 bg-[var(--surface-2)] rounded-lg">
-                  <p className="text-2xl font-bold text-[var(--text)]">{item.count}</p>
-                  <p className="text-sm text-[var(--text-muted)] capitalize">{item.status.replace('_', ' ')}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </Card>
-
-        <Card>
-          <div className="p-4 border-b-[var(--border)] flex items-center justify-between">
-            <h3 className="font-semibold text-[var(--text)]">Recent Jobs</h3>
-          </div>
-          <div className="p-4 max-h-96 overflow-y-auto">
-            <div className="space-y-2">
-              {jobs?.slice(0, 20).map((job) => (
-                <div key={job.id} className="flex items-center justify-between p-3 bg-[var(--surface-2)] rounded-lg">
-                  <div className="flex items-center gap-3">
-                    {job.uploaded_image && (
-                      <img src={`/storage/${job.uploaded_image}`} alt="" className="w-12 h-16 object-cover rounded" />
-                    )}
-                    <div>
-                      <p className="font-medium text-sm">{job.final_metadata?.title || job.extracted_metadata?.title || 'Not detected'}</p>
-                      <p className="text-xs text-[var(--text-muted)]">By {job.reviewed_by} • {formatDate(job.created_at)}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Badge variant={job.status === 'confirmed' ? 'success' : job.status === 'needs_review' ? 'warning' : job.status === 'draft' ? 'purple' : 'danger'}>
-                      {job.status.replace('_', ' ')}
-                    </Badge>
-                    <span className="text-sm font-medium text-[var(--text-muted)]">{job.confidence}%</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </Card>
-      </div>
-    );
   };
 
   return (
@@ -503,16 +433,7 @@ function ReportsPage() {
       {activeTab === 'books' && renderBookReport()}
       {activeTab === 'borrowing' && renderBorrowingReport()}
       {activeTab === 'students' && renderStudentActivityReport()}
-      {activeTab === 'ai' && renderAiCatalogingReport()}
     </div>
-  );
-}
-
-function Sparkles() {
-  return (
-    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L18 21l-2.286-6.857L3 12l5.714-2.143L6 3z" />
-    </svg>
   );
 }
 

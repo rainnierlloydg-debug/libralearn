@@ -9,6 +9,7 @@ use App\Models\Interest;
 use App\Models\LibraryLocation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use App\Services\Ai\GeminiClient;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -52,7 +53,7 @@ class AiCatalogController extends Controller
         }
 
         // Store image
-        $path = $request->file('image')->store('ai-catalog', 'public');
+        $path = $request->file('image')->store('ai-catalog', config('filesystems.covers_disk', 'public'));
 
         // Create job
         $job = AiCatalogJob::create([
@@ -90,8 +91,12 @@ class AiCatalogController extends Controller
             $job->update(['status' => 'processing']);
             $extractedData = $this->extractTextFromImage($job->uploaded_image);
             $ocrMetadata = $extractedData['metadata'] ?? [];
-            $aiMetadata = $this->extractMetadataWithOpenAI($job->uploaded_image, $extractedData['text'] ?? '');
+            $aiMetadata = $this->extractMetadataWithGemini($job->uploaded_image, $extractedData['text'] ?? '');
             $metadata = array_merge($ocrMetadata, $aiMetadata);
+            $metadata['_sources'] = array_values(array_filter([
+                !empty($extractedData['text']) ? 'ocr' : null,
+                $aiMetadata ? 'gemini' : null,
+            ]));
 
             $job->update([
                 'extracted_text' => $extractedData['text'] ?? '',
@@ -104,7 +109,7 @@ class AiCatalogController extends Controller
 
             // Step 3: Search Google Books if needed
             $googleBooksResult = null;
-            if (!$openLibraryResult || empty($openLibraryResult['items'])) {
+            if (!$openLibraryResult || empty($openLibraryResult['docs'])) {
                 $googleBooksResult = $this->searchGoogleBooks($metadata);
                 $job->update(['google_books_result' => $googleBooksResult]);
             }
@@ -124,99 +129,105 @@ class AiCatalogController extends Controller
         } catch (\Exception $e) {
             $job->update([
                 'status' => 'failed',
-                'error_message' => $e->getMessage(),
+                'error_message' => 'Image processing failed. Please retry or enter the book details manually.',
             ]);
         }
     }
 
+    /**
+     * OCR with Google Cloud Vision TEXT_DETECTION. Server-side only; the
+     * API key never reaches the browser.
+     */
     protected function extractTextFromImage(string $imagePath): array
     {
-        // Use OCR.space API or similar
-        $apiKey = config('services.ocr.api_key');
-        $apiUrl = config('services.ocr.api_url', 'https://api.ocr.space/parse/image');
+        $apiKey = config('services.google_vision.api_key');
+        $apiUrl = config('services.google_vision.api_url', 'https://vision.googleapis.com/v1/images:annotate');
 
         if (!$apiKey) {
             return ['text' => '', 'metadata' => []];
         }
 
         try {
-            $response = Http::attach(
-                'file',
-                Storage::disk('public')->get($imagePath),
-                basename($imagePath)
-            )->post($apiUrl, [
-                'apikey' => $apiKey,
-                'language' => 'eng',
-                'isOverlayRequired' => false,
-            ]);
+            $response = Http::acceptJson()
+                ->timeout(20)
+                ->withHeaders(['X-Goog-Api-Key' => $apiKey])
+                ->post($apiUrl, [
+                    'requests' => [[
+                        'image' => ['content' => base64_encode(Storage::disk(config('filesystems.covers_disk', 'public'))->get($imagePath))],
+                        'features' => [['type' => 'TEXT_DETECTION']],
+                    ]],
+                ]);
 
-            if ($response->successful()) {
-                $data = $response->json();
-                if (isset($data['ParsedResults'][0]['ParsedText'])) {
-                    $text = $data['ParsedResults'][0]['ParsedText'];
-                    return [
-                        'text' => $text,
-                        'metadata' => $this->parseBookMetadata($text),
-                    ];
-                }
+            if (!$response->successful()) {
+                Log::warning('Google Vision OCR failed.', ['status' => $response->status()]);
+                return ['text' => '', 'metadata' => []];
             }
-        } catch (\Exception $e) {
+
+            $result = $response->json('responses.0') ?? [];
+            if (isset($result['error'])) {
+                Log::warning('Google Vision OCR returned an error.', ['message' => $result['error']['message'] ?? null]);
+                return ['text' => '', 'metadata' => []];
+            }
+
+            $text = $result['fullTextAnnotation']['text'] ?? ($result['textAnnotations'][0]['description'] ?? '');
+
+            return [
+                'text' => $text,
+                'metadata' => $text !== '' ? $this->parseBookMetadata($text) : [],
+            ];
+        } catch (\Throwable $e) {
+            Log::warning('Google Vision OCR request failed.', ['message' => $this->redactKeys($e->getMessage())]);
             return ['text' => '', 'metadata' => []];
         }
-
-        return ['text' => '', 'metadata' => []];
     }
 
-    protected function extractMetadataWithOpenAI(string $imagePath, string $ocrText): array
+    protected function extractMetadataWithGemini(string $imagePath, string $ocrText): array
     {
-        $apiKey = config('services.openai.api_key');
+        $apiKey = config('services.gemini.catalog_api_key') ?: config('services.gemini.api_key');
         if (!$apiKey) {
             return [];
         }
 
         try {
-            $disk = Storage::disk('public');
+            $disk = Storage::disk(config('filesystems.covers_disk', 'public'));
             $mimeType = $disk->mimeType($imagePath) ?: 'image/jpeg';
             $imageData = base64_encode($disk->get($imagePath));
             $ocrText = $ocrText !== '' ? Str::limit($ocrText, 12000) : 'No OCR text was available.';
 
-            $response = Http::withToken($apiKey)
-                ->acceptJson()
-                ->timeout(25)
-                ->post(config('services.openai.api_url'), [
-                    'model' => config('services.openai.model', 'gpt-4o-mini'),
-                    'temperature' => 0.1,
-                    'response_format' => ['type' => 'json_object'],
-                    'messages' => [
-                        [
-                            'role' => 'system',
-                            'content' => 'You catalog books from cover images and OCR. Extract only information supported by the image or OCR; never guess. Return one JSON object with keys title, author, isbn, publisher, publication_year, edition, language, description, genre, and subject. Use null for unknown values. Keep description concise.',
-                        ],
-                        [
-                            'role' => 'user',
-                            'content' => [
-                                ['type' => 'text', 'text' => "Read this book cover. Use the OCR text as supporting evidence, but correct obvious OCR errors.\n\nOCR text:\n{$ocrText}"],
-                                [
-                                    'type' => 'image_url',
-                                    'image_url' => [
-                                        'url' => "data:{$mimeType};base64,{$imageData}",
-                                        'detail' => 'high',
-                                    ],
-                                ],
-                            ],
-                        ],
+            $response = app(GeminiClient::class)->generate([
+                    'system_instruction' => [
+                        'parts' => [[
+                            'text' => 'You catalog books from cover images and OCR. Extract only information supported by the image or OCR; never guess. Return one JSON object with keys title, author, isbn, publisher, publication_year, edition, language, description, genre, and subject. Use null for unknown values. Keep description concise.'
+                        ]]
                     ],
-                ]);
+                    'contents' => [[
+                        'role' => 'user',
+                        'parts' => [
+                            ['text' => "Read this book cover. Use the OCR text as supporting evidence, but correct obvious OCR errors.\n\nOCR text:\n{$ocrText}"],
+                            [
+                                'inline_data' => [
+                                    'mime_type' => $mimeType,
+                                    'data' => $imageData
+                                ]
+                            ]
+                        ]
+                    ]],
+                    'generationConfig' => [
+                        'temperature' => 0.1,
+                        'maxOutputTokens' => 1000,
+                        'responseMimeType' => 'application/json',
+                    ],
+                ], 30, $apiKey);
 
             if (!$response->successful()) {
-                Log::warning('OpenAI book metadata extraction failed.', ['status' => $response->status()]);
+                Log::warning('Gemini book metadata extraction failed.', ['status' => $response->status()]);
                 return [];
             }
 
-            $content = data_get($response->json(), 'choices.0.message.content');
-            $metadata = is_string($content) ? json_decode($content, true) : null;
+            $text = app(GeminiClient::class)->text($response);
+            $metadata = json_decode($text, true);
             if (!is_array($metadata)) {
-                Log::warning('OpenAI returned invalid book metadata JSON.');
+                Log::warning('Gemini returned invalid book metadata JSON.');
                 return [];
             }
 
@@ -224,6 +235,9 @@ class AiCatalogController extends Controller
             $extracted = [];
             foreach ($fields as $field) {
                 $value = $metadata[$field] ?? null;
+                if ($field === 'publication_year' && is_int($value)) {
+                    $value = (string) $value;
+                }
                 if (is_string($value) && trim($value) !== '') {
                     $extracted[$field] = trim($value);
                 }
@@ -231,7 +245,7 @@ class AiCatalogController extends Controller
 
             return $extracted;
         } catch (\Throwable $e) {
-            Log::warning('OpenAI book metadata extraction request failed.', ['message' => $e->getMessage()]);
+            Log::warning('Gemini book metadata extraction request failed.', ['message' => app(GeminiClient::class)->redact($e->getMessage())]);
             return [];
         }
     }
@@ -282,6 +296,10 @@ class AiCatalogController extends Controller
 
         $query = implode(' ', $searchTerms);
         $url = config('services.open_library.api_url', 'https://openlibrary.org/search.json');
+        // Accept a base URL (https://openlibrary.org) as well as the full endpoint.
+        if (!str_ends_with($url, '.json')) {
+            $url = rtrim($url, '/') . '/search.json';
+        }
 
         try {
             $response = Http::timeout(10)->get($url, [
@@ -293,7 +311,7 @@ class AiCatalogController extends Controller
                 return $response->json();
             }
         } catch (\Exception $e) {
-            // Log error but continue
+            Log::warning('Book lookup request failed.', ['message' => $this->redactKeys($e->getMessage())]);
         }
 
         return null;
@@ -319,22 +337,41 @@ class AiCatalogController extends Controller
 
         $query = implode(' ', $searchTerms);
         $url = config('services.google_books.api_url', 'https://www.googleapis.com/books/v1/volumes');
+        // Accept a base URL (.../books/v1) as well as the full endpoint.
+        if (!str_ends_with(rtrim($url, '/'), '/volumes')) {
+            $url = rtrim($url, '/') . '/volumes';
+        }
 
         try {
-            $response = Http::timeout(10)->get($url, [
-                'q' => $query,
-                'maxResults' => 5,
-                'key' => config('services.google_books.api_key'),
-            ]);
+            // Key in a header so it never appears in URLs or error messages.
+            $apiKey = config('services.google_books.api_key');
+            $response = Http::timeout(10)
+                ->withHeaders($apiKey ? ['X-Goog-Api-Key' => $apiKey] : [])
+                ->get($url, [
+                    'q' => $query,
+                    'maxResults' => 5,
+                ]);
 
             if ($response->successful()) {
                 return $response->json();
             }
         } catch (\Exception $e) {
-            // Log error but continue
+            Log::warning('Book lookup request failed.', ['message' => $this->redactKeys($e->getMessage())]);
         }
 
         return null;
+    }
+
+    /**
+     * Strip API keys from text before it is logged.
+     */
+    protected function redactKeys(string $text): string
+    {
+        $keys = array_filter([config('services.google_vision.api_key'), config('services.google_books.api_key'), config('services.gemini.api_key'), config('services.gemini.catalog_api_key')]);
+
+        $text = preg_replace('/([?&]key=)[^&\s]+/i', '$1[redacted]', $text);
+
+        return str_replace($keys, '[redacted]', $text);
     }
 
     protected function combineAndClassify(array $ocrData, ?array $openLibrary, ?array $googleBooks): array
@@ -373,7 +410,7 @@ class AiCatalogController extends Controller
         $result['publication_date'] = $this->normalizePublicationDate($result['publication_date']);
 
         // OCR data as fallback
-        $sources[] = 'ocr';
+        $sources = array_merge($sources, $ocrData['_sources'] ?? ($ocrData ? ['ocr'] : []));
 
         $result['sources'] = $sources;
 
@@ -456,8 +493,8 @@ class AiCatalogController extends Controller
         $text = strtolower(implode(' ', [
             $metadata['title'] ?? '',
             $metadata['description'] ?? '',
-            $metadata['raw_subjects'] ? implode(' ', $metadata['raw_subjects']) : '',
-            $metadata['raw_categories'] ? implode(' ', $metadata['raw_categories']) : '',
+            implode(' ', $metadata['raw_subjects'] ?? []),
+            implode(' ', $metadata['raw_categories'] ?? []),
         ]));
 
         $genreKeywords = [
@@ -482,7 +519,7 @@ class AiCatalogController extends Controller
             }
         }
 
-        return 'Fiction';
+        return 'Not detected';
     }
 
     protected function classifySubject(array $metadata): string
@@ -490,8 +527,8 @@ class AiCatalogController extends Controller
         $text = strtolower(implode(' ', [
             $metadata['title'] ?? '',
             $metadata['description'] ?? '',
-            $metadata['raw_subjects'] ? implode(' ', $metadata['raw_subjects']) : '',
-            $metadata['raw_categories'] ? implode(' ', $metadata['raw_categories']) : '',
+            implode(' ', $metadata['raw_subjects'] ?? []),
+            implode(' ', $metadata['raw_categories'] ?? []),
         ]));
 
         $subjectKeywords = [
@@ -514,7 +551,7 @@ class AiCatalogController extends Controller
             }
         }
 
-        return 'General';
+        return 'Not detected';
     }
 
     protected function calculateConfidence(array $finalMetadata, array $ocrData): float
@@ -539,7 +576,7 @@ class AiCatalogController extends Controller
 
         $job = AiCatalogJob::findOrFail($id);
 
-        foreach (['isbn', 'publisher', 'publication_date', 'edition', 'language', 'description', 'cover_image', 'genre', 'subject', 'shelf', 'library_section'] as $field) {
+        foreach (['title', 'author', 'isbn', 'publisher', 'publication_date', 'edition', 'language', 'description', 'cover_image', 'genre', 'subject', 'shelf', 'library_section'] as $field) {
             if ($request->input($field) === 'Not detected') {
                 $request->merge([$field => null]);
             }
@@ -655,7 +692,7 @@ class AiCatalogController extends Controller
         $this->authorize('librarian');
 
         $job = AiCatalogJob::findOrFail($id);
-        Storage::disk('public')->delete($job->uploaded_image);
+        Storage::disk(config('filesystems.covers_disk', 'public'))->delete($job->uploaded_image);
         $job->delete();
 
         return response()->json([

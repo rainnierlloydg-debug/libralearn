@@ -1,29 +1,33 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { ToastProvider } from './contexts/ToastContext';
 import Layout from './components/layout/Layout';
 import LandingPage from './pages/LandingPage';
-import LoginPage from './pages/auth/LoginPage';
-import RegisterPage from './pages/auth/RegisterPage';
-import StudentDashboard from './pages/student/Dashboard';
-import SearchLibraryPage from './pages/student/SearchLibraryPage';
-import BookDetailPage from './pages/student/BookDetailPage';
-import RecommendationsPage from './pages/student/RecommendationsPage';
-import MyBooksPage from './pages/student/MyBooksPage';
-import SavedBooksPage from './pages/student/SavedBooksPage';
-import OnlineSearchPage from './pages/student/OnlineSearchPage';
-import NotificationsPage from './pages/student/NotificationsPage';
-import ProfilePage from './pages/student/ProfilePage';
-import LibraryMapPage from './pages/student/LibraryMapPage';
-import LibrarianDashboard from './pages/librarian/Dashboard';
-import LibrarianBooksPage from './pages/librarian/BooksPage';
-import LibrarianAiCatalogPage from './pages/librarian/AiCatalogPage';
-import LibrarianStudentsPage from './pages/librarian/StudentsPage';
-import LibrarianBorrowingPage from './pages/librarian/BorrowingPage';
-import LibrarianReservationsPage from './pages/librarian/ReservationsPage';
-import LibrarianReturnsPage from './pages/librarian/ReturnsPage';
-import LibrarianReportsPage from './pages/librarian/ReportsPage';
-import LibrarianSettingsPage from './pages/librarian/SettingsPage';
+const LoginPage = lazy(() => import('./pages/auth/LoginPage'));
+const RegisterPage = lazy(() => import('./pages/auth/RegisterPage'));
+const StudentDashboard = lazy(() => import('./pages/student/Dashboard'));
+const SearchLibraryPage = lazy(() => import('./pages/student/SearchLibraryPage'));
+const BookDetailPage = lazy(() => import('./pages/student/BookDetailPage'));
+const RecommendationsPage = lazy(() => import('./pages/student/RecommendationsPage'));
+const MyBooksPage = lazy(() => import('./pages/student/MyBooksPage'));
+const SavedBooksPage = lazy(() => import('./pages/student/SavedBooksPage'));
+const OnlineSearchPage = lazy(() => import('./pages/student/OnlineSearchPage'));
+const NotificationsPage = lazy(() => import('./pages/student/NotificationsPage'));
+const ProfilePage = lazy(() => import('./pages/student/ProfilePage'));
+const LibraryMapPage = lazy(() => import('./pages/student/LibraryMapPage'));
+const LibrarianDashboard = lazy(() => import('./pages/librarian/Dashboard'));
+const LibrarianBooksPage = lazy(() => import('./pages/librarian/BooksPage'));
+const LibrarianAiCatalogPage = lazy(() => import('./pages/librarian/AiCatalogPage'));
+const LibrarianStudentsPage = lazy(() => import('./pages/librarian/StudentsPage'));
+const LibrarianBorrowingPage = lazy(() => import('./pages/librarian/BorrowingPage'));
+const LibrarianLoanDeskPage = lazy(() => import('./pages/librarian/LoanDeskPage'));
+const LibrarianReservationsPage = lazy(() => import('./pages/librarian/ReservationsPage'));
+const LibrarianReturnsPage = lazy(() => import('./pages/librarian/ReturnsPage'));
+const LibrarianReportsPage = lazy(() => import('./pages/librarian/ReportsPage'));
+const LibrarianInsightsPage = lazy(() => import('./pages/librarian/InsightsPage'));
+const LibrarianSettingsPage = lazy(() => import('./pages/librarian/SettingsPage'));
+const LibrarianNotificationsPage = lazy(() => import('./pages/librarian/NotificationsPage'));
 import ProtectedRoute from './components/ProtectedRoute';
 import './index.css';
 
@@ -32,6 +36,7 @@ function App() {
     <AuthProvider>
       <ToastProvider>
         <BrowserRouter>
+          <Suspense fallback={<div className="p-8 text-center" role="status">Loading page...</div>}>
           <Routes>
             {/* Public routes */}
             <Route path="/" element={<LandingPage />} />
@@ -68,15 +73,19 @@ function App() {
               <Route path="/librarian/ai-catalog" element={<LibrarianAiCatalogPage />} />
               <Route path="/librarian/students" element={<LibrarianStudentsPage />} />
               <Route path="/librarian/borrowing" element={<LibrarianBorrowingPage />} />
+              <Route path="/librarian/loan-desk" element={<LibrarianLoanDeskPage />} />
               <Route path="/librarian/reservations" element={<LibrarianReservationsPage />} />
               <Route path="/librarian/returns" element={<LibrarianReturnsPage />} />
+              <Route path="/librarian/insights" element={<LibrarianInsightsPage />} />
               <Route path="/librarian/reports" element={<LibrarianReportsPage />} />
               <Route path="/librarian/settings" element={<LibrarianSettingsPage />} />
+              <Route path="/librarian/notifications" element={<LibrarianNotificationsPage />} />
             </Route>
 
             {/* Redirect unknown routes */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          </Suspense>
         </BrowserRouter>
       </ToastProvider>
     </AuthProvider>

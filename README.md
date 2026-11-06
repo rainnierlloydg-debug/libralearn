@@ -1,3 +1,20 @@
+# libralearn
+
+For full-stack hosting with transfer of the current local records and uploads,
+see [Railway deployment](docs/railway-deployment.md).
+
+For local demo accounts and synthetic borrowing activity, see
+[demo data instructions](docs/demo-data.md).
+
+For a free demo deployment on Render with Supabase, see
+[Render deployment with synthetic data](docs/render-deployment.md).
+
+For chatbot and book-cover identification setup, endpoints, and examples, see
+[AI API documentation](docs/ai-api.md). Run `npm test` for backend tests and
+`npm run lint` for frontend checks (`npm.cmd` in restricted PowerShell).
+Admin forecasting setup and methods are in [analytics documentation](docs/analytics.md)
+and [forecasting provenance](forecasting/PROVENANCE.md).
+
 <p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
 
 <p align="center">

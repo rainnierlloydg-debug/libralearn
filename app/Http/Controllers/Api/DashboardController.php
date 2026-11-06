@@ -13,6 +13,22 @@ use Carbon\Carbon;
 
 class DashboardController extends Controller
 {
+    public function landingStats(Request $request)
+    {
+        // Public landing page statistics
+        $stats = [
+            'total_books' => Book::where('source', 'gsa')->count(),
+            'active_students' => User::where('role', 'student')->where('status', 'active')->count(),
+            'total_borrowed' => BorrowTransaction::whereIn('status', ['borrowed', 'returned'])->count(),
+            'genres_available' => Book::where('source', 'gsa')->distinct('genre')->count('genre'),
+        ];
+
+        return response()->json([
+            'success' => true,
+            'data' => $stats,
+        ]);
+    }
+
     public function student(Request $request)
     {
         $user = $request->user();
@@ -85,7 +101,8 @@ class DashboardController extends Controller
             'available_books' => Book::where('source', 'gsa')->where('status', 'available')->count(),
             'borrowed_books' => Book::where('source', 'gsa')->where('status', 'borrowed')->count(),
             'reserved_books' => Book::where('source', 'gsa')->where('status', 'reserved')->count(),
-            'overdue_books' => Book::where('source', 'gsa')->where('status', 'overdue')->count(),
+            // Overdue is tracked on the loan, not the book.
+            'overdue_books' => BorrowTransaction::where('status', 'overdue')->distinct()->count('book_id'),
             'lost_books' => Book::where('source', 'gsa')->where('status', 'lost')->count(),
             'damaged_books' => Book::where('source', 'gsa')->where('status', 'damaged')->count(),
             'registered_students' => User::where('role', 'student')->where('status', 'active')->count(),
@@ -102,21 +119,21 @@ class DashboardController extends Controller
             ->get();
 
         // Overdue transactions
-        $overdueTransactions = BorrowTransaction::with(['student', 'book'])
+        $overdueTransactions = BorrowTransaction::with(['student:id,name,school_id', 'book'])
             ->where('status', 'overdue')
             ->orderBy('due_date')
             ->limit(10)
             ->get();
 
         // Pending borrow requests
-        $pendingBorrows = BorrowTransaction::with(['student', 'book'])
+        $pendingBorrows = BorrowTransaction::with(['student:id,name,school_id', 'book'])
             ->where('status', 'pending')
             ->orderBy('request_date')
             ->limit(10)
             ->get();
 
         // Pending reservations
-        $pendingReservations = Reservation::with(['student', 'book'])
+        $pendingReservations = Reservation::with(['student:id,name,school_id', 'book'])
             ->where('status', 'pending')
             ->orderBy('reservation_date')
             ->limit(10)

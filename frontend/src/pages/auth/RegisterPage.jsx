@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { BookOpen, Eye, EyeOff, Mail, Lock, User, ChevronRight, CheckCircle } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
-import { useToast } from '../../contexts/ToastContext';
+import { Eye, EyeOff, CheckCircle } from 'lucide-react';
+import AuthLayout from '../../components/auth/AuthLayout';
+import { useAuth } from '../../contexts/useAuth';
+import { useToast } from '../../contexts/useToast';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
+import api from '../../utils/api';
 
 const GRADE_LEVELS = [
   'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10',
@@ -16,35 +18,6 @@ const SECTIONS = [
   'St. Joseph', 'St. Mary', 'St. Peter', 'St. Paul',
   'St. John', 'St. Matthew', 'St. Mark', 'St. Luke',
   'STEM-A', 'STEM-B', 'ABM-A', 'ABM-B', 'HUMSS-A', 'HUMSS-B', 'GAS-A', 'GAS-B',
-];
-
-const INTERESTS = [
-  // Genres
-  { id: 'genre-fiction', name: 'Fiction', type: 'genre' },
-  { id: 'genre-fantasy', name: 'Fantasy', type: 'genre' },
-  { id: 'genre-sci-fi', name: 'Science Fiction', type: 'genre' },
-  { id: 'genre-mystery', name: 'Mystery', type: 'genre' },
-  { id: 'genre-romance', name: 'Romance', type: 'genre' },
-  { id: 'genre-adventure', name: 'Adventure', type: 'genre' },
-  { id: 'genre-horror', name: 'Horror', type: 'genre' },
-  { id: 'genre-thriller', name: 'Thriller', type: 'genre' },
-  { id: 'genre-biography', name: 'Biography', type: 'genre' },
-  { id: 'genre-poetry', name: 'Poetry', type: 'genre' },
-  { id: 'genre-historical', name: 'Historical Fiction', type: 'genre' },
-  { id: 'genre-graphic', name: 'Graphic Novels', type: 'genre' },
-  { id: 'genre-ya', name: 'Young Adult', type: 'genre' },
-  { id: 'genre-dystopian', name: 'Dystopian', type: 'genre' },
-  // Subjects
-  { id: 'subject-math', name: 'Mathematics', type: 'subject' },
-  { id: 'subject-science', name: 'Science', type: 'subject' },
-  { id: 'subject-english', name: 'English', type: 'subject' },
-  { id: 'subject-filipino', name: 'Filipino', type: 'subject' },
-  { id: 'subject-history', name: 'History', type: 'subject' },
-  { id: 'subject-social', name: 'Social Studies', type: 'subject' },
-  { id: 'subject-tech', name: 'Technology', type: 'subject' },
-  { id: 'subject-arts', name: 'Arts', type: 'subject' },
-  { id: 'subject-pe', name: 'Physical Education', type: 'subject' },
-  { id: 'subject-values', name: 'Values Education', type: 'subject' },
 ];
 
 function RegisterPage() {
@@ -67,11 +40,25 @@ function RegisterPage() {
   const [errors, setErrors] = useState({});
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [interests, setInterests] = useState([]);
+  const [interestsError, setInterestsError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    api.get('/auth/registration-interests').then((response) => {
+      if (active && response.data.success) {
+        setInterests(response.data.data.map((interest) => ({ ...interest, id: interest.slug })));
+      }
+    }).catch(() => {
+      if (active) setInterestsError('Interests could not load. You can still create your account and choose interests later.');
+    });
+    return () => { active = false; };
+  }, []);
 
   const steps = [
     { number: 1, title: 'Account', desc: 'Basic information' },
-    { number: 2, title: 'Student Info', desc: 'Grade and section' },
-    { number: 3, title: 'Interests', desc: 'Reading preferences' },
+    { number: 2, title: 'Student Info', desc: 'Optional grade and section' },
+    { number: 3, title: 'Interests', desc: 'Optional preferences' },
   ];
 
   const validateStep = (currentStep) => {
@@ -84,18 +71,13 @@ function RegisterPage() {
       if (!formData.password) newErrors.password = 'Password is required';
       else if (formData.password.length < 8) newErrors.password = 'Password must be at least 8 characters';
       if (formData.password !== formData.confirmPassword) newErrors.confirmPassword = 'Passwords do not match';
-    } else if (currentStep === 2) {
-      if (!formData.grade_level) newErrors.grade_level = 'Grade level is required';
-      if (!formData.section) newErrors.section = 'Section is required';
-    } else if (currentStep === 3) {
-      if (formData.interests.length < 3) newErrors.interests = 'Please select at least 3 interests';
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleChange = (e) => {
-    const { name, value, type, checked } = e.target;
+    const { name, value, type: _type, checked } = e.target;
     if (name === 'interests') {
       if (checked) {
         setFormData((prev) => ({
@@ -131,7 +113,15 @@ function RegisterPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!validateStep(3)) return;
+    if (loading) return;
+    if (step < 3) {
+      handleNext();
+      return;
+    }
+    if (!validateStep(1)) {
+      setStep(1);
+      return;
+    }
 
     setLoading(true);
     try {
@@ -146,16 +136,25 @@ function RegisterPage() {
         profile_image: formData.profile_image,
       });
       if (result.success) {
-        success('Registration successful! Welcome to LibraLearn!');
-        navigate('/dashboard');
+        success('Registration successful! Please log in to continue.');
+        navigate('/login');
       } else {
-        error(result.message || 'Registration failed');
         if (result.errors) {
-          setErrors(result.errors);
+          const fieldErrors = Object.fromEntries(Object.entries(result.errors).map(([field, messages]) => [
+            field.split('.')[0], Array.isArray(messages) ? messages.join(' ') : messages,
+          ]));
+          setErrors(fieldErrors);
+          if (['name', 'school_id', 'email', 'password'].some((field) => fieldErrors[field])) setStep(1);
+          else if (fieldErrors.grade_level || fieldErrors.section) setStep(2);
+          error(Object.values(fieldErrors)[0] || result.message || 'Registration failed');
+        } else {
+          error(result.message || 'Registration failed');
         }
       }
     } catch (err) {
-      error('An error occurred. Please try again.');
+      const message = err.response?.data?.message || 'We could not create your account right now. Please try again.';
+      setErrors({ general: message });
+      error(message);
     } finally {
       setLoading(false);
     }
@@ -176,7 +175,7 @@ function RegisterPage() {
     switch (step) {
       case 1:
         return (
-          <div className="register-fields">
+          <div className="register-fields auth-account-fields">
             <Input
               label="Full Name"
               name="name"
@@ -186,7 +185,6 @@ function RegisterPage() {
               error={errors.name}
               placeholder="Enter your full name"
               autoComplete="name"
-              leftIcon={<User className="w-5 h-5" />}
             />
             <Input
               label="School ID"
@@ -197,7 +195,6 @@ function RegisterPage() {
               error={errors.school_id}
               placeholder="e.g., 2024-0001"
               autoComplete="username"
-              leftIcon={<User className="w-5 h-5" />}
             />
             <Input
               label="Email Address"
@@ -208,7 +205,6 @@ function RegisterPage() {
               error={errors.email}
               placeholder="student@gsa.edu"
               autoComplete="email"
-              leftIcon={<Mail className="w-5 h-5" />}
             />
             <div className="relative">
               <Input
@@ -220,28 +216,16 @@ function RegisterPage() {
                 error={errors.password}
                 placeholder="At least 8 characters"
                 autoComplete="new-password"
-                leftIcon={<Lock className="w-5 h-5" />}
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="register-password-toggle"
+                className="register-password-toggle" aria-pressed={showPassword}
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
               >
                 {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
             </div>
-            <Input
-              label="Confirm Password"
-              name="confirmPassword"
-              type={showPassword ? 'text' : 'password'}
-              value={formData.confirmPassword}
-              onChange={handleChange}
-              error={errors.confirmPassword}
-              placeholder="Confirm your password"
-              autoComplete="new-password"
-              leftIcon={<Lock className="w-5 h-5" />}
-            />
             {formData.password && (
               <div>
                 <div className="flex gap-1 mb-1">
@@ -259,11 +243,21 @@ function RegisterPage() {
                 </p>
               </div>
             )}
+            <Input
+              label="Confirm Password"
+              name="confirmPassword"
+              type={showPassword ? 'text' : 'password'}
+              value={formData.confirmPassword}
+              onChange={handleChange}
+              error={errors.confirmPassword}
+              placeholder="Confirm your password"
+              autoComplete="new-password"
+            />
           </div>
         );
       case 2:
         return (
-          <div className="register-fields">
+          <div className="register-fields auth-student-fields">
             <label className="register-select-field">
               <span>Grade level</span>
               <select
@@ -303,16 +297,17 @@ function RegisterPage() {
         return (
           <div className="register-fields">
             <p className="register-interest-intro">
-              Select at least 3 genres and subjects you enjoy reading. This helps us recommend books you'll love!
+              Select any genres or subjects you enjoy reading. This step is optional.
             </p>
             {errors.interests && (
               <p className="register-field-error">{errors.interests}</p>
             )}
+            {interestsError && <p role="status">{interestsError}</p>}
 
             <div>
               <h4 className="register-group-title">Genres</h4>
               <div className="register-interest-list">
-                {INTERESTS.filter(i => i.type === 'genre').map((interest) => (
+                {interests.filter(i => i.type === 'genre').map((interest) => (
                   <label
                     key={interest.id}
                     className={`register-interest ${
@@ -338,7 +333,7 @@ function RegisterPage() {
             <div>
               <h4 className="register-group-title">Academic Subjects</h4>
               <div className="register-interest-list">
-                {INTERESTS.filter(i => i.type === 'subject').map((interest) => (
+                {interests.filter(i => i.type === 'subject').map((interest) => (
                   <label
                     key={interest.id}
                     className={`register-interest register-interest-subject ${
@@ -372,80 +367,29 @@ function RegisterPage() {
   };
 
   return (
-    <main className="register-page">
-      <section className="register-panel" aria-label="Student registration">
-        <aside className="register-rail">
-          <Link to="/" className="register-brand">
-            <span className="register-brand-icon"><BookOpen aria-hidden="true" /></span>
-            <span>LibraLearn</span>
-          </Link>
-          <div className="register-rail-copy">
-            <p className="register-eyebrow">GOOD SHEPHERDED ACADEMY</p>
-            <h1>Your library, picked for you.</h1>
-            <p>Create a student account to find books that fit your classes and interests.</p>
-          </div>
-          <nav className="register-steps" aria-label="Registration progress">
-            {steps.map((s, i) => (
-              <div
-                key={s.number}
-                className={`register-step ${i + 1 === step ? 'is-current' : ''} ${i + 1 < step ? 'is-complete' : ''}`}
-                aria-current={i + 1 === step ? 'step' : undefined}
-              >
-                <span className="register-step-number">
-                  {i + 1 < step ? <CheckCircle aria-hidden="true" /> : s.number}
-                </span>
-                <span className="register-step-copy">
-                  <strong>{s.title}</strong>
-                  <small>{s.desc}</small>
-                </span>
-              </div>
-            ))}
-          </nav>
-          <p className="register-rail-note">A few details now. Better book discoveries later.</p>
-        </aside>
-
-        <div className="register-content">
-          <div className="register-mobile-brand">
-            <Link to="/" className="register-brand">
-              <span className="register-brand-icon"><BookOpen aria-hidden="true" /></span>
-              <span>LibraLearn</span>
-            </Link>
-            <span>Student registration</span>
-          </div>
-
-          <div className="register-heading">
-            <span className="register-step-caption">STEP {step} OF {steps.length}</span>
-            <h2>{step === 1 ? 'Create your account' : step === 2 ? 'Your student details' : 'What do you like to read?'}</h2>
-            <p>{step === 1 ? 'Start with your school account information.' : step === 2 ? 'Tell us where you are in school.' : 'Choose at least three interests for better recommendations.'}</p>
-          </div>
-
-          <form onSubmit={handleSubmit} className="register-form">
-            {renderStepContent()}
-
-            <div className={`register-actions ${step === 1 ? 'is-first-step' : ''}`}>
-              {step > 1 && (
-                <Button type="button" variant="secondary" onClick={handleBack}>
-                  Back
-                </Button>
-              )}
-              {step < 3 ? (
-                <Button type="button" onClick={handleNext}>
-                  Next
-                  <ChevronRight className="w-4 h-4" />
-                </Button>
-              ) : (
-                <Button type="submit" className="w-full md:w-auto" size="lg" loading={loading}>
-                  Create Account
-                </Button>
-              )}
-            </div>
-          </form>
-          <p className="register-login-link">
-            Already have an account? <Link to="/login">Sign in</Link>
-          </p>
+    <AuthLayout registration step={step} steps={steps}>
+      <div className="auth-register-content">
+        <ol className="auth-registration-progress" aria-label="Registration progress">
+          {steps.map(item => <li key={item.number} data-current={step === item.number} data-complete={step > item.number} aria-current={step === item.number ? 'step' : undefined}>
+            <span>{step > item.number ? <CheckCircle size={14} aria-hidden="true" /> : `0${item.number}`}</span>{item.title}
+          </li>)}
+        </ol>
+        <div className="auth-registration-heading">
+          <span className="auth-form-eyebrow">STEP {step} OF {steps.length}{step > 1 && ' · OPTIONAL'}</span>
+          <h1 className="auth-form-title">{step === 1 ? 'Start your story.' : step === 2 ? 'Make it yours.' : 'Follow your curiosity.'}</h1>
+          <p className="auth-form-description">{step === 1 ? 'Create your student account. Your next discovery starts here.' : step === 2 ? 'Add your grade and section, or leave them for later.' : 'Pick the genres and subjects you love. You can always change these later.'}</p>
         </div>
-      </section>
-    </main>
+        <form onSubmit={handleSubmit} className="register-form">
+          {errors.general && <p role="alert" className="auth-form-error">{errors.general}</p>}
+          {renderStepContent()}
+          <div className={`register-actions ${step === 1 ? 'is-first-step' : ''}`}>
+            {step > 1 && <Button type="button" variant="secondary" disabled={loading} onClick={handleBack}>Back</Button>}
+            {step < 3 ? <Button type="submit">Continue</Button> : <Button type="submit" loading={loading}>Create My Account</Button>}
+          </div>
+        </form>
+        <p className="register-login-link">Already part of the library? <Link to="/login">Sign in</Link></p>
+      </div>
+    </AuthLayout>
   );
 }
 

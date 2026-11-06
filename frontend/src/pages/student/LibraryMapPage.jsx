@@ -1,298 +1,187 @@
-import { useState, useEffect } from 'react';
-import { MapPin, BookOpen, Search, X, ChevronLeft, ChevronRight } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import { useState, useEffect, useCallback } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { BookOpen, MapPin, Layers, Search, X, Info } from 'lucide-react';
 import api from '../../utils/api';
-import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import BookCard from '../../components/book/BookCard';
-import { formatDate } from '../../utils/helpers';
+import { SkeletonCard } from '../../components/ui/Skeleton';
 
-function LibraryMapPage() {
-  const { user } = useAuth();
-  const [mapData, setMapData] = useState([]);
-  const [selectedSection, setSelectedSection] = useState(null);
-  const [sectionBooks, setSectionBooks] = useState([]);
+export default function LibraryMapPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedSection = searchParams.get('section') || '';
+  const selectedShelf = searchParams.get('shelf') || '';
+  const [sections, setSections] = useState([]);
+  const [unassigned, setUnassigned] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [showSectionPanel, setShowSectionPanel] = useState(false);
-  const [bookFromUrl, setBookFromUrl] = useState(null);
+  const [mapError, setMapError] = useState('');
+  const [sectionSearch, setSectionSearch] = useState('');
+  const [bookResult, setBookResult] = useState({ key: '', books: [], error: '' });
+  const sectionKey = JSON.stringify([selectedSection, selectedShelf]);
+  const selected = sections.find(section => section.section_name === selectedSection);
+  const visibleSections = sections.filter(section => section.section_name.toLowerCase().includes(sectionSearch.toLowerCase().trim()));
+  const bookCount = sections.reduce((sum, section) => sum + section.book_count, 0);
+  const shelfCount = sections.reduce((sum, section) => sum + section.shelves.length, 0);
 
-  useEffect(() => {
-    fetchMapData();
-  }, []);
-
-  useEffect(() => {
-    // Check if we came from a book detail page
-    const urlParams = new URLSearchParams(window.location.search);
-    const bookSection = urlParams.get('section');
-    const bookShelf = urlParams.get('shelf');
-    if (bookSection) {
-      setBookFromUrl({ section: bookSection, shelf: bookShelf });
-      setSelectedSection(bookSection);
-    }
-  }, []);
-
-  const fetchMapData = async () => {
+  const fetchMap = useCallback(async (signal) => {
+    setLoading(true);
+    setMapError('');
     try {
-      const response = await api.get('/library-locations/map');
-      if (response.data.success) {
-        setMapData(response.data.data);
-      }
-    } catch (err) {
-      console.error('Failed to fetch map data:', err);
+      const { data } = await api.get('/library-locations/map', { signal });
+      if (!data.success || !Array.isArray(data.data)) throw new Error('Invalid map response');
+      setSections(data.data);
+      setUnassigned(data.unassigned_book_count || 0);
+    } catch {
+      if (!signal?.aborted) setMapError('Unable to load library sections. Please try again.');
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
-  };
+  }, [setLoading, setMapError, setSections, setUnassigned]);
 
-  const fetchSectionBooks = async (sectionName) => {
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => fetchMap(controller.signal), 0);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [fetchMap]);
+
+  const fetchBooks = useCallback(async (signal) => {
+    if (!selectedSection) return;
     try {
-      const response = await api.get(`/library-locations/section/${sectionName}/books`);
-      if (response.data.success) {
-        setSectionBooks(response.data.data);
-      }
-    } catch (err) {
-      console.error('Failed to fetch section books:', err);
+      const { data } = await api.get(`/library-locations/section/${encodeURIComponent(selectedSection)}/books`, {
+        signal, params: selectedShelf ? { shelf: selectedShelf } : {},
+      });
+      if (!data.success || !Array.isArray(data.data)) throw new Error('Invalid section response');
+      if (!signal?.aborted) setBookResult({ key: sectionKey, books: data.data, error: '' });
+    } catch {
+      if (!signal?.aborted) setBookResult({ key: sectionKey, books: [], error: 'Unable to load these books. Please try again.' });
     }
-  };
+  }, [selectedSection, selectedShelf, sectionKey, setBookResult]);
 
-  const handleSectionClick = (section) => {
-    setSelectedSection(section.section_name);
-    setShowSectionPanel(true);
-    fetchSectionBooks(section.section_name);
-  };
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => fetchBooks(controller.signal), 0);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [fetchBooks]);
 
-  const handleClosePanel = () => {
-    setSelectedSection(null);
-    setShowSectionPanel(false);
-    setSectionBooks([]);
+  const chooseSection = (name, shelf = '') => {
+    setSearchParams(shelf ? { section: name, shelf } : { section: name });
   };
-
-  const getShelfColor = (index) => {
-    const colors = [
-      'from-primary-500 to-primary-600',
-      'from-accent-500 to-accent-600',
-      'from-green-500 to-green-600',
-      'from-purple-500 to-purple-600',
-      'from-blue-500 to-blue-600',
-      'from-pink-500 to-pink-600',
-      'from-orange-500 to-orange-600',
-      'from-teal-500 to-teal-600',
-    ];
-    return colors[index % colors.length];
-  };
-
-  const sectionIcons = {
-    Fiction: BookOpen,
-    Science: BookOpen,
-    Mathematics: BookOpen,
-    English: BookOpen,
-    Filipino: BookOpen,
-    History: BookOpen,
-    Reference: BookOpen,
-    Others: BookOpen,
-  };
-
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <h1 className="text-2xl font-heading font-bold text-[var(--text)]">Library Map</h1>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[...Array(8)].map((_, i) => (
-            <Card key={i} className="p-6 animate-pulse">
-              <div className="h-8 bg-[var(--surface-2)] rounded mb-4" />
-              <div className="h-4 bg-[var(--surface-2)] rounded w-3/4" />
-              <div className="h-4 bg-[var(--surface-2)] rounded w-1/2 mt-2" />
-            </Card>
-          ))}
-        </div>
-      </div>
-    );
-  }
+  const clearSelection = () => setSearchParams({});
+  const booksLoading = bookResult.key !== sectionKey;
+  const invalidShelf = selectedShelf && selected && !selected.shelves.some(shelf => shelf.shelf_number === selectedShelf);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div className="library-map-page space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-heading font-bold text-[var(--text)]">Library Map</h1>
-          <p className="text-[var(--text-muted)]">Navigate the GSA library sections and find your books</p>
+          <p className="text-[var(--text-muted)] mt-1">Find a section, choose a shelf, and explore its books.</p>
         </div>
-        {selectedSection && (
-          <Button variant="secondary" onClick={handleClosePanel} className="w-full md:w-auto">
-            <ChevronLeft className="w-4 h-4 mr-1" />
-            Back to Map
-          </Button>
-        )}
+        <Link to="/search" className="btn btn-secondary"><BookOpen className="w-4 h-4" aria-hidden="true" />Browse All Books</Link>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Map sidebar */}
-        <div className="lg:col-span-1">
-          <Card className="p-4 h-full">
-            <h3 className="font-semibold text-[var(--text)] mb-4">Library Sections</h3>
-            <div className="space-y-2 max-h-[600px] overflow-y-auto">
-              {mapData.map((section, index) => {
-                const isSelected = selectedSection === section.section_name;
-                const Icon = sectionIcons[section.section_name] || BookOpen;
-                return (
-                  <button
-                    key={section.section_name}
-                    onClick={() => handleSectionClick(section)}
-                    className={`w-full text-left p-3 rounded-lg transition-all flex items-center gap-3 ${
-                      isSelected
-                        ? 'bg-primary-50 dark:bg-primary-900/30 border-l-4 border-primary-500'
-                        : 'hover:bg-[var(--surface-2)]'
-                    }`}
-                  >
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-gradient-to-br ${getShelfColor(index)}`}>
-                      <Icon className="w-5 h-5 text-white" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-[var(--text)] truncate">{section.section_name}</p>
-                      <p className="text-xs text-[var(--text-muted)]">
-                        {section.shelves?.length || 0} shelves • {section.book_count} books
-                      </p>
-                    </div>
-                    {isSelected && <ChevronRight className="w-4 h-4 text-primary-500" />}
-                  </button>
-                );
-              })}
-            </div>
-          </Card>
+      {loading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4" aria-label="Loading library sections" aria-busy="true">
+          {[0, 1, 2].map(index => <SkeletonCard key={index} />)}
         </div>
-
-        {/* Map visualization */}
-        <div className="lg:col-span-3">
-          {showSectionPanel && selectedSection ? (
-            <div className="space-y-4 animate-slide-up">
-              <Card className="p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br bg-primary-500/20 flex items-center justify-center">
-                      <BookOpen className="w-6 h-6 text-primary-600" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-semibold text-[var(--text)]">{selectedSection}</h3>
-                      <p className="text-sm text-[var(--text-muted)]">
-                        {sectionBooks.length} books in this section
-                      </p>
-                    </div>
-                  </div>
-                  <Button variant="secondary" onClick={handleClosePanel}>
-                    <ChevronLeft className="w-4 h-4 mr-1" />
-                    Back
-                  </Button>
-                </div>
+      ) : mapError ? (
+        <Card className="p-8 text-center" role="alert">
+          <p className="text-[var(--text-muted)] mb-4">{mapError}</p>
+          <Button variant="secondary" onClick={() => fetchMap()}>Try Again</Button>
+        </Card>
+      ) : sections.length === 0 ? (
+        <Card className="library-map-empty p-8 text-center">
+          <div className="saved-books-empty-icon"><MapPin className="w-8 h-8" aria-hidden="true" /></div>
+          <h2 className="text-lg font-semibold text-[var(--text)]">No library sections available yet</h2>
+          <p className="text-sm text-[var(--text-muted)] max-w-md mt-2 mb-5">Section and shelf details will appear here once locations are assigned to library books. Ask the librarian for help locating a book.</p>
+          <Link to="/search" className="btn btn-primary">Browse All Books</Link>
+        </Card>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-3">
+            {[[MapPin, sections.length, 'Sections'], [Layers, shelfCount, 'Shelves'], [BookOpen, bookCount, 'Located titles']].map(([Icon, count, label]) => (
+              <Card key={label} className="library-map-stat p-4">
+                <Icon className="w-5 h-5" aria-hidden="true" />
+                <div><strong>{count}</strong><span>{label}</span></div>
               </Card>
+            ))}
+          </div>
 
-              {sectionBooks.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {sectionBooks.map((book) => (
-                    <BookCard key={book.id} book={book} variant="grid" showActions={true} />
-                  ))}
-                </div>
-              ) : (
-                <Card className="p-8 text-center">
-                  <BookOpen className="w-12 h-12 mx-auto text-[var(--text-faint)] mb-3" />
-                  <h4 className="text-lg font-medium text-[var(--text)] mb-1">No books in this section</h4>
-                  <p className="text-[var(--text-muted)]">Books will appear here when added to this section.</p>
-                </Card>
-              )}
-            </div>
-          ) : (
-            <Card className="p-4 h-[600px] overflow-hidden">
-              <div className="h-full relative">
-                {/* SVG Map */}
-                <svg viewBox="0 0 1000 1100" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
-                  {/* Entrance */}
-                  <rect x="350" y="10" width="300" height="60" rx="10" fill="#E0E7FF" stroke="#4F46E5" strokeWidth="2" />
-                  <text x="500" y="52" textAnchor="middle" fontSize="14" fontWeight="bold" fill="#4F46E5" fontFamily="system-ui">ENTRANCE</text>
-
-                  {/* Sections grid */}
-                  {mapData.map((section, sectionIndex) => {
-                    const shelves = section.shelves || [];
-                    const shelfCount = shelves.length;
-                    const col = sectionIndex % 2;
-                    const row = Math.floor(sectionIndex / 2);
-                    const baseX = 50 + col * 450;
-                    const baseY = 100 + row * 220;
-                    const sectionColors = {
-                      Fiction: '#E0E7FF',
-                      Science: '#DBEAFE',
-                      Mathematics: '#FEF3C7',
-                      English: '#FCE7F3',
-                      Filipino: '#FED7AA',
-                      History: '#EDE9FE',
-                      Reference: '#F3F4F6',
-                      Others: '#F1F5F9',
-                    };
-                    const bgColor = sectionColors[section.section_name] || '#E0E7FF';
-                    const borderColors = {
-                      Fiction: '#4F46E5',
-                      Science: '#2563EB',
-                      Mathematics: '#D97706',
-                      English: '#DB2777',
-                      Filipino: '#EA580C',
-                      History: '#7C3AED',
-                      Reference: '#6B7280',
-                      Others: '#64748B',
-                    };
-                    const borderColor = borderColors[section.section_name] || '#4F46E5';
-
-                    return (
-                      <g key={section.section_name} onClick={() => handleSectionClick(section)} style={{ cursor: 'pointer' }}>
-                        <rect 
-                          x={baseX} 
-                          y={baseY} 
-                          width={400} 
-                          height={200} 
-                          rx="12" 
-                          fill={bgColor} 
-                          stroke={borderColor} 
-                          strokeWidth="2"
-                          filter="drop-shadow(0 4px 6px rgba(0,0,0,0.1))"
-                        />
-                        <text x={baseX + 20} y={baseY + 30} fontSize="16" fontWeight="bold" fill={borderColor} fontFamily="system-ui">
-                          {section.section_name.toUpperCase()}
-                        </text>
-                        <text x={baseX + 20} y={baseY + 55} fontSize="12" fill={borderColor} fontFamily="system-ui" opacity="0.8">
-                          {section.book_count} books • {shelfCount} shelves
-                        </text>
-                        {/* Shelves visualization */}
-                        {shelves.slice(0, 4).map((shelf, shelfIndex) => (
-                          <rect
-                            key={shelf.id}
-                            x={baseX + 20 + shelfIndex * 90}
-                            y={baseY + 70}
-                            width={80}
-                            height={100}
-                            rx="6"
-                            fill="white"
-                            stroke={borderColor}
-                            strokeWidth="1"
-                            opacity="0.7"
-                          />
-                        ))}
-                        {shelfCount > 4 && (
-                          <text x={baseX + 20 + 4 * 90} y={baseY + 120} fontSize="10" fill={borderColor} fontFamily="system-ui" opacity="0.7">
-                            +{shelfCount - 4} more
-                          </text>
-                        )}
-                        {/* Click hint */}
-                        <text x={baseX + 380} y={baseY + 190} fontSize="10" fill={borderColor} fontFamily="system-ui" opacity="0.5" textAnchor="end">
-                          Click to explore →
-                        </text>
-                      </g>
-                    );
-                  })}
-                </svg>
+          <div className="library-map-layout">
+            <Card className="library-map-sidebar p-4">
+              <h2 className="font-semibold text-[var(--text)]">Library Sections</h2>
+              <p className="text-xs text-[var(--text-muted)] mt-1 mb-4">Choose a section to see its shelves.</p>
+              <label htmlFor="map-section-search" className="sr-only">Find a library section</label>
+              <div className="relative mb-4">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-faint)]" aria-hidden="true" />
+                <input id="map-section-search" className="input library-map-search" placeholder="Find a section..." value={sectionSearch} onChange={event => setSectionSearch(event.target.value)} />
               </div>
+              <nav className="library-section-list" aria-label="Library sections">
+                <button className="library-section-button" aria-pressed={!selectedSection} onClick={clearSelection}>
+                  <MapPin className="w-5 h-5 shrink-0" aria-hidden="true" /><span><strong>All Sections</strong><small>View section overview</small></span>
+                </button>
+                {visibleSections.map(section => (
+                  <button key={section.section_name} className="library-section-button" aria-pressed={selectedSection === section.section_name} onClick={() => chooseSection(section.section_name)}>
+                    <BookOpen className="w-5 h-5 shrink-0" aria-hidden="true" />
+                    <span><strong>Section {section.section_name}</strong><small>{section.shelves.length} shelves · {section.book_count} titles</small></span>
+                  </button>
+                ))}
+                {visibleSections.length === 0 && <p className="text-sm text-[var(--text-muted)] p-3">No matching sections.</p>}
+              </nav>
             </Card>
-          )}
-        </div>
-      </div>
+
+            <div className="min-w-0 space-y-4">
+              {!selectedSection ? (
+                <Card className="p-5 sm:p-6">
+                  <h2 className="text-lg font-semibold text-[var(--text)]">Section Overview</h2>
+                  <p className="text-sm text-[var(--text-muted)] mt-1 mb-5">Select a section below to browse its books and shelf labels.</p>
+                  <div className="library-map-tiles">
+                    {sections.map(section => (
+                      <button key={section.section_name} className="library-map-tile" onClick={() => chooseSection(section.section_name)} aria-label={`Explore section ${section.section_name}, ${section.book_count} titles`}>
+                        <div className="flex items-center gap-3"><span className="library-map-section-icon"><BookOpen className="w-5 h-5" aria-hidden="true" /></span><div><strong>Section {section.section_name}</strong><small>{section.book_count} titles · {section.shelves.length} shelves</small></div></div>
+                        <div className="library-map-shelf-tags">
+                          {section.shelves.slice(0, 6).map(shelf => <span key={shelf.shelf_number}>Shelf {shelf.shelf_number}</span>)}
+                          {section.shelves.length > 6 && <span>+{section.shelves.length - 6} more</span>}
+                          {section.shelves.length === 0 && <span>Shelf labels not assigned</span>}
+                        </div>
+                        <span className="library-map-explore">Explore Section</span>
+                      </button>
+                    ))}
+                  </div>
+                </Card>
+              ) : !selected || invalidShelf ? (
+                <Card className="p-8 text-center" role="alert">
+                  <h2 className="font-semibold text-[var(--text)]">{invalidShelf ? 'Shelf not found' : 'Section not found'}</h2>
+                  <p className="text-sm text-[var(--text-muted)] mt-2 mb-4">This location is no longer listed. Choose a section from the overview.</p>
+                  <Button variant="secondary" onClick={clearSelection}>View All Sections</Button>
+                </Card>
+              ) : (
+                <>
+                  <Card className="p-5">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div><h2 className="text-lg font-semibold text-[var(--text)]">Section {selectedSection}{selectedShelf && ` · Shelf ${selectedShelf}`}</h2><p className="text-sm text-[var(--text-muted)] mt-1" role="status">{booksLoading ? 'Loading books...' : bookResult.error ? 'Books unavailable' : `${bookResult.books.length} titles in this ${selectedShelf ? 'shelf' : 'section'}`}</p></div>
+                      <Button variant="secondary" size="sm" onClick={clearSelection}><X className="w-4 h-4" aria-hidden="true" />Clear Selection</Button>
+                    </div>
+                    <div className="library-map-shelf-filters" role="group" aria-label="Filter by shelf">
+                      <button aria-pressed={!selectedShelf} onClick={() => chooseSection(selectedSection)}>All Shelves</button>
+                      {selected.shelves.map(shelf => <button key={shelf.shelf_number} aria-pressed={selectedShelf === shelf.shelf_number} onClick={() => chooseSection(selectedSection, shelf.shelf_number)} title={shelf.description || `Shelf ${shelf.shelf_number}`}>Shelf {shelf.shelf_number}<span>{shelf.book_count}</span></button>)}
+                    </div>
+                    {selectedShelf && selected.shelves.find(shelf => shelf.shelf_number === selectedShelf)?.description && <p className="text-sm text-[var(--text-muted)] mt-3">{selected.shelves.find(shelf => shelf.shelf_number === selectedShelf).description}</p>}
+                  </Card>
+                  {booksLoading ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4" aria-busy="true">{[0, 1].map(index => <SkeletonCard key={index} />)}</div>
+                  ) : bookResult.error ? (
+                    <Card className="p-8 text-center" role="alert"><p className="text-[var(--text-muted)] mb-4">{bookResult.error}</p><Button variant="secondary" onClick={() => fetchBooks()}>Try Again</Button></Card>
+                  ) : bookResult.books.length === 0 ? (
+                    <Card className="library-map-empty p-8 text-center"><BookOpen className="w-10 h-10 text-[var(--text-faint)] mb-3" aria-hidden="true" /><h3 className="font-semibold text-[var(--text)]">No books assigned here yet</h3><p className="text-sm text-[var(--text-muted)] mt-2">Choose another shelf or section to continue browsing.</p></Card>
+                  ) : <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">{bookResult.books.map(book => <BookCard key={book.id} book={book} showActions />)}</div>}
+                </>
+              )}
+              <div className="library-map-help"><Info className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" /><p>Sections are grouped by their catalog labels; this overview does not show exact floor positions. Ask the librarian for directions.{unassigned > 0 && ` ${unassigned} ${unassigned === 1 ? 'title has' : 'titles have'} no section assigned yet.`}</p></div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
-
-export default LibraryMapPage;

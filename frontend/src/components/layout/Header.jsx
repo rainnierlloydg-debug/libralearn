@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Menu, X, Bell, User, Search, LogOut, BookOpen, Home, Compass, Bookmark, History, Settings, ChevronDown, Sparkles, BarChart } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import { Menu, X, Bell, User, LogOut, BookOpen, Bookmark, Settings, ChevronDown } from 'lucide-react';
+import { useAuth } from '../../contexts/useAuth';
 import api from '../../utils/api';
 import SearchBar from '../ui/SearchBar';
-import Badge from '../ui/Badge';
+
 import Button from '../ui/Button';
 import Avatar from '../ui/Avatar';
 
@@ -24,7 +24,7 @@ function StudentHeader({ mobileMenuOpen = false, onMobileMenuToggle }) {
         if (response.data.success) {
           setUnreadCount(response.data.data.unread_count);
         }
-      } catch (err) {
+      } catch {
         // Ignore
       }
     };
@@ -113,7 +113,7 @@ function StudentHeader({ mobileMenuOpen = false, onMobileMenuToggle }) {
                     <p className="p-4 text-center text-[var(--text-muted)]">Click to view all notifications</p>
                   </div>
                   <div className="p-3 border-t-[var(--border)]">
-                    <Link to="/notifications" className="btn-primary w-full justify-center">View All</Link>
+                    <Link to="/notifications" className="btn btn-primary w-full">View All</Link>
                   </div>
                 </div>
               )}
@@ -182,7 +182,7 @@ function LibrarianHeader({ mobileMenuOpen = false, onMobileMenuToggle }) {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [pendingCounts, setPendingCounts] = useState({ borrows: 0, reservations: 0, returns: 0 });
+  const [_pendingCounts, setPendingCounts] = useState({ borrows: 0, reservations: 0, returns: 0 });
   const profileMenuRef = useRef(null);
   const notificationsRef = useRef(null);
 
@@ -203,7 +203,7 @@ function LibrarianHeader({ mobileMenuOpen = false, onMobileMenuToggle }) {
             returns: pendingResponse.data.data.stats.pending_return_confirmations || 0,
           });
         }
-      } catch (err) {
+      } catch {
         // Ignore
       }
     };
@@ -284,7 +284,7 @@ function LibrarianHeader({ mobileMenuOpen = false, onMobileMenuToggle }) {
                     <p className="p-4 text-center text-[var(--text-muted)]">Click to view all notifications</p>
                   </div>
                   <div className="p-3 border-t-[var(--border)]">
-                    <Link to="/librarian/reports" className="btn-primary w-full justify-center">View All</Link>
+                    <Link to="/librarian/notifications" className="btn btn-primary w-full">View All</Link>
                   </div>
                 </div>
               )}

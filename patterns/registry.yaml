@@ -1,0 +1,13 @@
+# Loop patterns active in this repo.
+patterns:
+  - id: daily-triage
+    tool: claude
+    level: L1
+    cadence: 1d
+    mode: report-only
+    command: "/loop 1d $loop-triage"
+    state: STATE.md
+    constraints: loop-constraints.md
+    safety: docs/safety.md
+    auto_fix: false
+    auto_merge: false

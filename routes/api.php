@@ -13,12 +13,20 @@ use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\LibraryLocationController;
 use App\Http\Controllers\Api\InterestController;
-use App\Http\Controllers\Api\StudentAssistantController;
+use App\Http\Controllers\Api\AssistantController;
+use App\Http\Controllers\Api\LibraryInsightsController;
+use App\Http\Controllers\Api\BookCopyController;
+use App\Http\Controllers\Api\LibrarySettingsController;
+use App\Http\Controllers\Api\SavedBookController;
 use Illuminate\Support\Facades\Route;
 
 // Public routes
+Route::get('/auth/registration-interests', [AuthController::class, 'registrationInterests']);
 Route::post('/auth/register', [AuthController::class, 'register']);
 Route::post('/auth/login', [AuthController::class, 'login']);
+Route::post('/auth/librarian/login', [AuthController::class, 'librarianLogin']);
+Route::get('/landing/stats', [DashboardController::class, 'landingStats']);
+Route::get('/landing/featured-book', [BookController::class, 'featured']);
 
 // Protected routes
 Route::middleware('auth:sanctum')->group(function () {
@@ -38,6 +46,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/books/{id}', [BookController::class, 'destroy'])->middleware('role:librarian,admin');
     Route::post('/books/upload-cover', [BookController::class, 'uploadCover'])->middleware('role:librarian,admin');
 
+    // Book Copies (Librarian only)
+    Route::get('/books/{id}/copies', [BookCopyController::class, 'index'])->middleware('role:librarian,admin');
+    Route::post('/books/{id}/copies', [BookCopyController::class, 'store'])->middleware('role:librarian,admin');
+    Route::put('/book-copies/{id}', [BookCopyController::class, 'update'])->middleware('role:librarian,admin');
+
     // Borrowing
     Route::get('/borrow', [BorrowController::class, 'index']);
     Route::post('/borrow', [BorrowController::class, 'store']);
@@ -47,6 +60,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/borrow/{id}/confirm-return', [BorrowController::class, 'confirmReturn'])->middleware('role:librarian,admin');
     Route::post('/borrow/{id}/extend', [BorrowController::class, 'extend'])->middleware('role:librarian,admin');
     Route::post('/borrow/{id}/mark-overdue', [BorrowController::class, 'markOverdue'])->middleware('role:librarian,admin');
+
+    // Renewals
+    Route::post('/borrow/{id}/renew-request', [BorrowController::class, 'requestRenewal']);
+    Route::post('/borrow/{id}/renew', [BorrowController::class, 'renew'])->middleware('role:librarian,admin');
+    Route::post('/borrow/{id}/renew-reject', [BorrowController::class, 'rejectRenewal'])->middleware('role:librarian,admin');
+    Route::post('/borrow/{id}/fine-paid', [BorrowController::class, 'markFinePaid'])->middleware('role:librarian,admin');
 
     // Reservations
     Route::get('/reservations', [ReservationController::class, 'index']);
@@ -58,6 +77,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/reservations/expire-old', [ReservationController::class, 'expireOldReservations'])->middleware('role:librarian,admin');
 
     // Recommendations
+    Route::get('/saved-books', [SavedBookController::class, 'index']);
+    Route::post('/saved-books', [SavedBookController::class, 'store']);
+    Route::delete('/saved-books/{bookId}', [SavedBookController::class, 'destroy']);
     Route::get('/recommendations', [RecommendationController::class, 'index']);
     Route::post('/recommendations/{bookId}/feedback', [RecommendationController::class, 'feedback']);
     Route::get('/recommendations/{bookId}/feedback', [RecommendationController::class, 'getFeedback']);
@@ -65,21 +87,30 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/recommendations/interests', [RecommendationController::class, 'updateInterests']);
 
     // AI Cataloging
+    Route::post('/ai/identify-image', [AiCatalogController::class, 'store'])
+        ->middleware(['role:librarian,admin', 'throttle:10,1']);
     Route::get('/ai-catalog', [AiCatalogController::class, 'index'])->middleware('role:librarian,admin');
-    Route::post('/ai-catalog', [AiCatalogController::class, 'store'])->middleware('role:librarian,admin');
+    Route::post('/ai-catalog', [AiCatalogController::class, 'store'])->middleware(['role:librarian,admin', 'throttle:10,1']);
     Route::get('/ai-catalog/{id}', [AiCatalogController::class, 'show'])->middleware('role:librarian,admin');
     Route::post('/ai-catalog/{id}/confirm', [AiCatalogController::class, 'confirm'])->middleware('role:librarian,admin');
     Route::post('/ai-catalog/{id}/draft', [AiCatalogController::class, 'saveDraft'])->middleware('role:librarian,admin');
-    Route::post('/ai-catalog/{id}/retry', [AiCatalogController::class, 'retry'])->middleware('role:librarian,admin');
+    Route::post('/ai-catalog/{id}/retry', [AiCatalogController::class, 'retry'])->middleware(['role:librarian,admin', 'throttle:10,1']);
     Route::delete('/ai-catalog/{id}', [AiCatalogController::class, 'destroy'])->middleware('role:librarian,admin');
 
     // Online Search
     Route::post('/online-search', [OnlineSearchController::class, 'search']);
     Route::get('/online-search/history', [OnlineSearchController::class, 'getHistory']);
 
-    // Student assistant
-    Route::post('/assistant/chat', [StudentAssistantController::class, 'chat'])
-        ->middleware(['role:student', 'throttle:20,1']);
+    // Help assistant (students and librarians)
+    Route::post('/assistant/chat', [AssistantController::class, 'chat'])
+        ->middleware('throttle:20,1');
+
+    // AI library insights: usage trends, demand forecast, copy recommendations
+    Route::middleware('role:librarian,admin')->group(function () {
+        Route::get('/ai/insights', [LibraryInsightsController::class, 'index']);
+        Route::get('/ai/insights/briefing', [LibraryInsightsController::class, 'briefing'])->middleware('throttle:10,1');
+        Route::post('/ai/insights/refresh', [LibraryInsightsController::class, 'refresh']);
+    });
 
     // Dashboard
     Route::get('/dashboard/student', [DashboardController::class, 'student']);
@@ -92,7 +123,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/notifications/unread-count', [NotificationController::class, 'getUnreadCount']);
     Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
 
+    // Library Settings (Librarian only)
+    Route::get('/library-settings', [LibrarySettingsController::class, 'show'])->middleware('role:librarian,admin');
+    Route::put('/library-settings', [LibrarySettingsController::class, 'update'])->middleware('role:librarian,admin');
+
     // Reports (Librarian only)
+    Route::get('/reports/{type}/export', [ReportController::class, 'export'])
+        ->whereIn('type', ['books', 'borrowing', 'student-activity', 'ai-cataloging'])
+        ->middleware('role:librarian,admin');
     Route::get('/reports/books', [ReportController::class, 'bookReport'])->middleware('role:librarian,admin');
     Route::get('/reports/borrowing', [ReportController::class, 'borrowingReport'])->middleware('role:librarian,admin');
     Route::get('/reports/student-activity', [ReportController::class, 'studentActivityReport'])->middleware('role:librarian,admin');
@@ -105,6 +143,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/users/{id}', [UserController::class, 'update'])->middleware('role:librarian,admin');
     Route::delete('/users/{id}', [UserController::class, 'destroy'])->middleware('role:librarian,admin');
     Route::get('/users/{id}/details', [UserController::class, 'getDetails'])->middleware('role:librarian,admin');
+    Route::post('/users/{id}/approve', [UserController::class, 'approve'])->middleware('role:librarian,admin');
+    Route::post('/users/{id}/reject', [UserController::class, 'reject'])->middleware('role:librarian,admin');
 
     // Library Locations
     Route::get('/library-locations', [LibraryLocationController::class, 'index']);

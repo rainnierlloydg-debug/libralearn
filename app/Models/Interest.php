@@ -10,6 +10,7 @@ class Interest extends Model
         'name',
         'type',
         'description',
+        'slug',
     ];
 
     protected $casts = [
@@ -18,7 +19,7 @@ class Interest extends Model
 
     public function students()
     {
-        return $this->belongsToMany(User::class, 'student_interests');
+        return $this->belongsToMany(User::class, 'student_interests', 'interest_id', 'student_id');
     }
 
     public function books()

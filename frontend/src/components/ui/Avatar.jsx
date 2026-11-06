@@ -1,4 +1,4 @@
-import { User } from 'lucide-react';
+
 
 function Avatar({ src, alt, name, size = 'md', className = '' }) {
   const sizeClasses = {

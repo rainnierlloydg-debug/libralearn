@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
-import Button from './Button';
 
 function Modal({ isOpen, onClose, title, children, size = 'md', className = '', hideClose = false }) {
   const modalRef = useRef(null);

@@ -22,3 +22,11 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+/storage/backups
+*.llsnapshot
+*.llsnapshot.key
+/.research/
+/.python/
+/.forecast-venv/
+/.forecast-cache/
+__pycache__/

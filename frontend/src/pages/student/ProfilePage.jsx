@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { User, Mail, Lock, Calendar, BookOpen, Heart, Bookmark, Eye, EyeOff, Camera, X, CheckCircle, AlertCircle, Settings, ArrowLeft } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import { User, Lock, BookOpen, Heart, Bookmark, Camera, X, CheckCircle, Settings, Sun, Moon, Monitor } from 'lucide-react';
+import { useAuth } from '../../contexts/useAuth';
 import api from '../../utils/api';
-import Badge from '../../components/ui/Badge';
+
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import Card from '../../components/ui/Card';
@@ -23,42 +23,21 @@ const SECTIONS = [
   'STEM-A', 'STEM-B', 'ABM-A', 'ABM-B', 'HUMSS-A', 'HUMSS-B', 'GAS-A', 'GAS-B',
 ];
 
-const ALL_INTERESTS = [
-  // Genres
-  { id: 'genre-fiction', name: 'Fiction', type: 'genre' },
-  { id: 'genre-fantasy', name: 'Fantasy', type: 'genre' },
-  { id: 'genre-sci-fi', name: 'Science Fiction', type: 'genre' },
-  { id: 'genre-mystery', name: 'Mystery', type: 'genre' },
-  { id: 'genre-romance', name: 'Romance', type: 'genre' },
-  { id: 'genre-adventure', name: 'Adventure', type: 'genre' },
-  { id: 'genre-horror', name: 'Horror', type: 'genre' },
-  { id: 'genre-thriller', name: 'Thriller', type: 'genre' },
-  { id: 'genre-biography', name: 'Biography', type: 'genre' },
-  { id: 'genre-poetry', name: 'Poetry', type: 'genre' },
-  { id: 'genre-historical', name: 'Historical Fiction', type: 'genre' },
-  { id: 'genre-graphic', name: 'Graphic Novels', type: 'genre' },
-  { id: 'genre-ya', name: 'Young Adult', type: 'genre' },
-  { id: 'genre-dystopian', name: 'Dystopian', type: 'genre' },
-  // Subjects
-  { id: 'subject-math', name: 'Mathematics', type: 'subject' },
-  { id: 'subject-science', name: 'Science', type: 'subject' },
-  { id: 'subject-english', name: 'English', type: 'subject' },
-  { id: 'subject-filipino', name: 'Filipino', type: 'subject' },
-  { id: 'subject-history', name: 'History', type: 'subject' },
-  { id: 'subject-social', name: 'Social Studies', type: 'subject' },
-  { id: 'subject-tech', name: 'Technology', type: 'subject' },
-  { id: 'subject-arts', name: 'Arts', type: 'subject' },
-  { id: 'subject-pe', name: 'Physical Education', type: 'subject' },
-  { id: 'subject-values', name: 'Values Education', type: 'subject' },
-];
-
 function ProfilePage() {
   const { user, updateProfile } = useAuth();
   const [activeTab, setActiveTab] = useState('profile');
-  const [loading, setLoading] = useState(false);
+  const [interests, setInterests] = useState([]);
+
+  const [_loading, _setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState({});
   const [successMessage, setSuccessMessage] = useState('');
+
+  useEffect(() => {
+    api.get('/interests').then((response) => {
+      if (response.data.success) setInterests(response.data.data.map((interest) => ({ ...interest, id: interest.slug })));
+    }).catch(() => setErrors({ general: 'Interests could not load. Please reload the page.' }));
+  }, []);
   const [activity, setActivity] = useState({ history: [], saved: [], loading: false, loaded: false });
 
   // Form state
@@ -70,19 +49,17 @@ function ProfilePage() {
     current_password: '',
     new_password: '',
     confirm_password: '',
-    interests: user?.interests?.map(i => i.id) || [],
+    interests: user?.interests?.map(i => i.slug) || [],
     profile_image: user?.profile_image || '',
   });
 
   // Theme
-  const [theme, setTheme] = useState('light');
+  const [theme, setTheme] = useState(() => getThemePreference('student'));
   const [showPasswords, setShowPasswords] = useState(false);
 
   useEffect(() => {
-    const savedTheme = getThemePreference('student');
-    setTheme(savedTheme);
-    setShellTheme('student', savedTheme);
-  }, []);
+    setShellTheme('student', theme);
+  }, [theme]);
 
   useEffect(() => {
     if (activeTab !== 'activity' || activity.loaded || activity.loading) return;
@@ -100,7 +77,7 @@ function ProfilePage() {
           loading: false,
           loaded: true,
         });
-      } catch (err) {
+      } catch {
         setActivity((prev) => ({ ...prev, loading: false, loaded: true }));
       }
     };
@@ -109,7 +86,7 @@ function ProfilePage() {
   }, [activeTab, activity.loaded, activity.loading]);
 
   const handleChange = (e) => {
-    const { name, value, type, checked } = e.target;
+    const { name, value, type: _type, checked } = e.target;
     if (name === 'interests') {
       if (checked) {
         setFormData((prev) => ({
@@ -178,7 +155,7 @@ function ProfilePage() {
       } else {
         setErrors(result.errors || { general: result.message });
       }
-    } catch (err) {
+    } catch {
       setErrors({ general: 'An error occurred. Please try again.' });
     } finally {
       setSaving(false);
@@ -202,17 +179,20 @@ function ProfilePage() {
   return (
     <div className="student-profile-page space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-4">
+      <div>
         <h1 className="text-2xl font-heading font-bold text-[var(--text)]">Profile Settings</h1>
+        <p className="mt-1 text-sm text-[var(--text-muted)]">Manage your details, reading interests, and preferences.</p>
       </div>
 
       {/* Tabs */}
       <div className="student-profile-tabs border-b-[var(--border)]">
-        <nav className="flex gap-1 overflow-x-auto pb-1" role="tablist">
+        <nav className="flex gap-1 overflow-x-auto" role="tablist" aria-label="Profile settings sections">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               role="tab"
+              id={`profile-tab-${tab.id}`}
+              aria-controls="profile-settings-panel"
               aria-selected={activeTab === tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-2 px-4 py-3 rounded-t-lg font-medium text-sm transition-colors ${
@@ -229,6 +209,9 @@ function ProfilePage() {
       </div>
 
       {/* Tab content */}
+      {successMessage && <p className="profile-success-message" role="status">{successMessage}</p>}
+      {errors.general && <p className="profile-error-message" role="alert">{errors.general}</p>}
+      <section id="profile-settings-panel" role="tabpanel" aria-labelledby={`profile-tab-${activeTab}`}>
       {activeTab === 'profile' && (
         <Card className="profile-main-card p-6 space-y-6">
           <div className="profile-form-layout">
@@ -241,7 +224,7 @@ function ProfilePage() {
               <label className="profile-photo-button">
                 <Camera className="w-4 h-4" />
                 Change Photo
-                <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                <input type="file" accept="image/*" className="sr-only" aria-label="Choose profile photo" onChange={(e) => {
                   const file = e.target.files[0];
                   if (file) {
                     const reader = new FileReader();
@@ -251,7 +234,7 @@ function ProfilePage() {
                 }} />
               </label>
               {formData.profile_image && (
-                <Button variant="ghost" size="sm" onClick={() => setFormData((prev) => ({ ...prev, profile_image: '' }))}>
+                <Button variant="secondary" size="sm" onClick={() => setFormData((prev) => ({ ...prev, profile_image: '' }))}>
                   <X className="w-4 h-4" />
                   Remove photo
                 </Button>
@@ -265,7 +248,6 @@ function ProfilePage() {
                 onChange={handleChange}
                 error={errors.name}
                 placeholder="Enter your full name"
-                leftIcon={<User className="w-5 h-5" />}
               />
               <Input
                 label="Email Address"
@@ -275,7 +257,6 @@ function ProfilePage() {
                 onChange={handleChange}
                 error={errors.email}
                 placeholder="student@gsa.edu"
-                leftIcon={<Mail className="w-5 h-5" />}
               />
               <div className="profile-select-grid">
                 <label className="profile-select-field">
@@ -308,13 +289,11 @@ function ProfilePage() {
             </div>
           </div>
 
-          <div className="pt-4 border-t-[var(--border)]">
+          <div className="profile-save-actions pt-4 border-t border-[var(--border)]">
             <Button onClick={handleSaveProfile} size="lg" loading={saving}>
               <CheckCircle className="w-4 h-4" />
               Save Changes
             </Button>
-            {successMessage && <span className="ml-4 text-green-600">{successMessage}</span>}
-            {errors.general && <p className="text-red-600 mt-2">{errors.general}</p>}
           </div>
         </Card>
       )}
@@ -329,14 +308,10 @@ function ProfilePage() {
           <div>
             <h3 className="font-semibold text-[var(--text)] mb-3">Genres</h3>
             <div className="flex flex-wrap gap-2">
-              {ALL_INTERESTS.filter(i => i.type === 'genre').map((interest) => (
+              {interests.filter(i => i.type === 'genre').map((interest) => (
                 <label
                   key={interest.id}
-                  className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border-2 cursor-pointer transition-all ${
-                    formData.interests.includes(interest.id)
-                      ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300'
-                      : 'border-[var(--border)] text-[var(--text-muted)] hover:border-primary-300'
-                  }`}
+                  className="profile-interest-option"
                 >
                   <input
                     type="checkbox"
@@ -355,14 +330,10 @@ function ProfilePage() {
           <div>
             <h3 className="font-semibold text-[var(--text)] mb-3">Academic Subjects</h3>
             <div className="flex flex-wrap gap-2">
-              {ALL_INTERESTS.filter(i => i.type === 'subject').map((interest) => (
+              {interests.filter(i => i.type === 'subject').map((interest) => (
                 <label
                   key={interest.id}
-                  className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border-2 cursor-pointer transition-all ${
-                    formData.interests.includes(interest.id)
-                      ? 'border-accent-500 bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300'
-                      : 'border-[var(--border)] text-[var(--text-muted)] hover:border-accent-300'
-                  }`}
+                  className="profile-interest-option"
                 >
                   <input
                     type="checkbox"
@@ -378,7 +349,7 @@ function ProfilePage() {
             </div>
           </div>
 
-          <div className="pt-4 border-t-[var(--border)]">
+          <div className="profile-save-actions pt-4 border-t border-[var(--border)]">
             <p className="text-sm text-[var(--text-muted)] mb-3">
               Selected: <strong>{formData.interests.length}</strong> interests
             </p>
@@ -386,7 +357,6 @@ function ProfilePage() {
               <CheckCircle className="w-4 h-4" />
               Save Interests
             </Button>
-            {successMessage && <span className="ml-4 text-green-600">{successMessage}</span>}
           </div>
         </Card>
       )}
@@ -442,7 +412,7 @@ function ProfilePage() {
             <div>
               <h3>Recommendations</h3>
               <p>Your interests and feedback help personalize the books shown on your Recommendations page.</p>
-              <Link to="/recommendations" className="profile-inline-link">View recommendations</Link>
+              <Link to="/recommendations" className="btn btn-secondary btn-sm mt-3">View Recommendations</Link>
             </div>
           </Card>
         </div>
@@ -472,7 +442,7 @@ function ProfilePage() {
                   onChange={handleChange}
                   error={field.error}
                   placeholder={field.placeholder}
-                  leftIcon={<Lock className="w-5 h-5" />}
+                  autoComplete={field.name === 'current_password' ? 'current-password' : 'new-password'}
                 />
               </div>
             ))}
@@ -481,13 +451,11 @@ function ProfilePage() {
             <input type="checkbox" checked={showPasswords} onChange={(e) => setShowPasswords(e.target.checked)} />
             <span>Show passwords</span>
           </label>
-          <div className="profile-security-actions pt-4 border-t-[var(--border)]">
+          <div className="profile-security-actions pt-4 border-t border-[var(--border)]">
             <Button onClick={handleSaveProfile} size="lg" loading={saving}>
               <CheckCircle className="w-4 h-4" />
               Update Password
             </Button>
-            {successMessage && <span className="ml-4 text-green-600">{successMessage}</span>}
-            {errors.general && <p className="text-red-600 mt-2">{errors.general}</p>}
           </div>
         </Card>
       )}
@@ -496,18 +464,19 @@ function ProfilePage() {
         <Card className="p-6 space-y-6">
           <h3 className="font-semibold text-[var(--text)]">Theme</h3>
           <p className="text-[var(--text-muted)]">Choose your preferred color scheme.</p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4" role="group" aria-label="Color scheme">
             {['light', 'dark', 'system'].map((t) => (
               <button
                 key={t}
                 onClick={() => handleThemeChange(t)}
-                className={`p-4 rounded-xl border-2 transition-all text-left ${theme === t ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20' : 'border-[var(--border)] hover:border-primary-300'}`}
+                className="profile-theme-choice"
+                aria-pressed={theme === t}
               >
                 <div className="flex items-center gap-3">
                   <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${t === 'dark' ? 'bg-gray-800' : t === 'system' ? 'bg-gradient-to-br from-white to-gray-100' : 'bg-white'}`}>
-                    {t === 'light' && <span className="text-2xl">☀️</span>}
-                    {t === 'dark' && <span className="text-2xl">🌙</span>}
-                    {t === 'system' && <span className="text-2xl">💻</span>}
+                    {t === 'light' && <Sun className="w-5 h-5 text-amber-600" aria-hidden="true" />}
+                    {t === 'dark' && <Moon className="w-5 h-5 text-white" aria-hidden="true" />}
+                    {t === 'system' && <Monitor className="w-5 h-5 text-slate-600" aria-hidden="true" />}
                   </div>
                   <div>
                     <p className="font-medium text-[var(--text)] capitalize">{t}</p>
@@ -521,6 +490,7 @@ function ProfilePage() {
           </div>
         </Card>
       )}
+      </section>
     </div>
   );
 }

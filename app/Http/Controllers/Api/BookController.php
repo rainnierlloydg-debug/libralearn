@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Book;
+use App\Models\BookCopy;
 use App\Models\Interest;
 use App\Models\LibraryLocation;
 use Illuminate\Http\Request;
@@ -39,7 +40,7 @@ class BookController extends Controller
         }
 
         if ($request->filled('author')) {
-            $query->where('author', 'LIKE', "%{$request->author}%");
+            $query->whereLike('author', "%{$request->author}%");
         }
 
         if ($request->filled('year_from')) {
@@ -99,6 +100,7 @@ class BookController extends Controller
             'library_location_id' => 'nullable|exists:library_locations,id',
             'category_ids' => 'nullable|array',
             'category_ids.*' => 'exists:interests,id',
+            'initial_copies' => 'nullable|integer|min:0|max:100',
         ]);
 
         if ($validator->fails()) {
@@ -109,22 +111,38 @@ class BookController extends Controller
             ], 422);
         }
 
-        $book = Book::create($request->except('category_ids'));
+        $initialCopies = $request->integer('initial_copies', 0);
+
+        $book = Book::create($request->except(['category_ids', 'initial_copies']));
 
         if ($request->has('category_ids')) {
             $book->categories()->attach($request->category_ids);
         }
 
+        // Create initial copies if specified
+        for ($i = 0; $i < $initialCopies; $i++) {
+            $book->copies()->create([
+                'accession_no' => BookCopy::nextAccessionNo(),
+                'library_location_id' => $book->library_location_id,
+                'status' => 'available',
+                'condition' => 'good',
+            ]);
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Book created successfully',
-            'data' => $book->load(['libraryLocation', 'categories']),
+            'data' => $book->load(['libraryLocation', 'categories', 'copies']),
         ], 201);
     }
 
     public function show($id)
     {
-        $book = Book::with(['libraryLocation', 'categories'])->findOrFail($id);
+        $book = Book::with(['libraryLocation', 'categories'])
+            ->withCount(['copies', 'copies as available_copies_count' => fn ($q) => $q->where('status', 'available')])
+            ->findOrFail($id);
+
+        $book->setAttribute('is_saved', $book->savedBooks()->where('student_id', request()->user()->id)->exists());
 
         return response()->json([
             'success' => true,
@@ -166,7 +184,14 @@ class BookController extends Controller
             ], 422);
         }
 
-        $book->update($request->except('category_ids'));
+        $data = $request->except('category_ids');
+
+        // Status of a book with copies comes from its copies, not this form.
+        if ($book->copies()->exists()) {
+            unset($data['status']);
+        }
+
+        $book->update($data);
 
         if ($request->has('category_ids')) {
             $book->categories()->sync($request->category_ids);
@@ -228,13 +253,13 @@ class BookController extends Controller
             ], 422);
         }
 
-        $path = $request->file('image')->store('book-covers', 'public');
+        $path = $request->file('image')->store('book-covers', config('filesystems.covers_disk', 'public'));
 
         return response()->json([
             'success' => true,
             'message' => 'Cover uploaded successfully',
             'path' => $path,
-            'url' => Storage::url($path),
+            'url' => Book::coverUrlFor($path),
         ]);
     }
 
@@ -249,6 +274,27 @@ class BookController extends Controller
         return response()->json([
             'success' => true,
             'data' => $books,
+        ]);
+    }
+
+    public function featured()
+    {
+        $book = Book::with(['libraryLocation'])
+            ->where('source', 'gsa')
+            ->where('status', 'available')
+            ->inRandomOrder()
+            ->first(['id', 'title', 'author', 'cover_image', 'genre', 'subject', 'description', 'isbn', 'library_section']);
+
+        if (!$book) {
+            return response()->json([
+                'success' => true,
+                'data' => null,
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $book,
         ]);
     }
 }
